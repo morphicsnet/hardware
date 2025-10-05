@@ -11,9 +11,11 @@ path = "src/lib.rs"
 [features]
 default = []
 telemetry = ["dep:nc-telemetry"]
+orchestrator = ["dep:nc-orchestrator"]
 
 [dependencies]
 anyhow = { workspace = true }
 tracing = { workspace = true }
 nc-nir = { path = "../nir" }
 nc-telemetry = { path = "../telemetry", optional = true, package = "nc-telemetry" }
+nc-orchestrator = { path = "../orchestrator", optional = true, package = "nc-orchestrator" }

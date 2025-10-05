@@ -86,13 +86,17 @@ mod tests {
 }
 
 pub mod adaptive {
-    use super::*;
+    //! Adaptive runtime decision application.
+    //!
+    //! This module defines a minimal Decision API and a clear, documented error taxonomy
+    //! used by the runtime to apply adaptive control decisions.
 
     #[cfg(feature = "telemetry")]
     use nc_telemetry as telemetry;
     use std::collections::HashSet;
     use std::sync::{Mutex, OnceLock};
 
+    /// A lightweight snapshot of relevant runtime resource signals used by policies to decide.
     #[derive(Debug, Clone)]
     pub struct ResourceSnapshot {
         pub utilization_pct: f32,
@@ -105,56 +109,92 @@ pub mod adaptive {
         }
     }
 
+    /// Decision expresses the runtime action to take following a policy evaluation.
+    ///
+    /// Semantics:
+    /// - NoChange: No-op. The current configuration remains. This must not alter idempotency state.
+    /// - Repartition: Re-plan the graph partitioning and apply it (feature-gated to the orchestrator).
+    /// - Reschedule: Adjust execution ordering or timing. Unavailable in this revision.
+    /// - Throttle: Apply rate limiting to execution or IO. Unavailable in this revision.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum Decision {
+        /// No action required; safe no-op.
         NoChange,
+        /// Repartition the workload via the orchestrator integration.
         Repartition,
+        /// Reschedule work ordering/time-slicing (not yet supported).
         Reschedule,
+        /// Apply throttling/back-pressure (not yet supported).
         Throttle,
     }
 
+    /// Policy encapsulates a strategy that maps a snapshot to a decision.
     pub trait Policy {
         fn name(&self) -> &str;
         fn decide(&self, snapshot: &ResourceSnapshot) -> Decision;
     }
 
+    /// A degenerate policy that always returns NoChange.
     pub struct NoOpPolicy;
 
     impl Policy for NoOpPolicy {
         fn name(&self) -> &str { "noop-policy" }
-        fn decide(&self, _snapshot: &ResourceSnapshot) -> Decision {
-            Decision::NoChange
-        }
+        fn decide(&self, _snapshot: &ResourceSnapshot) -> Decision { Decision::NoChange }
     }
 
-    /// Apply options for runtime decisions.
+    /// Options controlling application of a decision.
+    ///
+    /// - idempotency_key: When set, this call is idempotent within the current process. If the
+    ///   same key is applied again for a mutating decision (Repartition/Reschedule/Throttle), the
+    ///   call must fail with RuntimeError::IdempotencyConflict.
+    /// - dry_run: When true, no side-effects are performed (telemetry aside).
     #[derive(Debug, Clone, Default)]
     pub struct ApplyOptions {
-        /// Optional idempotency key to de-duplicate repeated requests
+        /// Optional idempotency key to de-duplicate repeated requests.
         pub idempotency_key: Option<String>,
-        /// When true, record intent only without applying side effects
+        /// When true, record intent only without applying side effects.
         pub dry_run: bool,
     }
 
-    /// Typed error taxonomy for decision application.
+    /// RuntimeError is the typed error taxonomy for applying runtime decisions.
+    ///
+    /// Variants:
+    /// - InvalidState: The runtime is in a state that cannot accept the decision (precondition failure).
+    /// - NotSupported: The decision path exists conceptually but is not implemented/enabled yet.
+    /// - IntegrationUnavailable: A required integration is not present (e.g., a feature not enabled).
+    /// - IdempotencyConflict: The provided idempotency key was already applied in this process.
+    /// - ApplyFailed: A downstream component failed to apply the change.
+    /// - RollbackFailed: Failure while attempting to roll back a partial apply.
+    /// - ConcurrencyConflict: Concurrent modification detected; the apply should be retried or aborted.
     #[derive(Debug)]
-    pub enum ApplyError {
-        InvalidState(&'static str),
-        NotSupported(&'static str),
-        Backend(String),
+    pub enum RuntimeError {
+        InvalidState(String),
+        NotSupported(String),
+        IntegrationUnavailable(String),
+        IdempotencyConflict(String),
+        ApplyFailed(String),
+        RollbackFailed(String),
+        ConcurrencyConflict(String),
     }
 
-    impl std::fmt::Display for ApplyError {
+    impl std::fmt::Display for RuntimeError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                ApplyError::InvalidState(s) => write!(f, "invalid state: {}", s),
-                ApplyError::NotSupported(s) => write!(f, "not supported: {}", s),
-                ApplyError::Backend(s) => write!(f, "backend error: {}", s),
+                RuntimeError::InvalidState(s) => write!(f, "invalid state: {}", s),
+                RuntimeError::NotSupported(s) => write!(f, "not supported: {}", s),
+                RuntimeError::IntegrationUnavailable(s) => write!(f, "integration unavailable: {}", s),
+                RuntimeError::IdempotencyConflict(k) => write!(f, "idempotency conflict for key: {}", k),
+                RuntimeError::ApplyFailed(s) => write!(f, "apply failed: {}", s),
+                RuntimeError::RollbackFailed(s) => write!(f, "rollback failed: {}", s),
+                RuntimeError::ConcurrencyConflict(s) => write!(f, "concurrency conflict: {}", s),
             }
         }
     }
 
-    impl std::error::Error for ApplyError {}
+    impl std::error::Error for RuntimeError {}
+
+    /// Result alias for decision application operations.
+    pub type Result<T> = std::result::Result<T, RuntimeError>;
 
     // Simple in-process idempotency registry (thread-safe).
     static IDEM_REGISTRY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -163,8 +203,13 @@ pub mod adaptive {
         IDEM_REGISTRY.get_or_init(|| Mutex::new(HashSet::new()))
     }
 
-    /// Returns true if the key has already been seen; otherwise records it and returns false.
-    fn register_idem_if_new(key: &str) -> bool {
+    /// Returns true if the key has already been applied for a mutating decision; otherwise records it.
+    ///
+    /// Note: NoChange does not participate in idempotency tracking.
+    fn already_applied_and_mark(decision: &Decision, key: &str) -> bool {
+        if matches!(decision, Decision::NoChange) {
+            return false;
+        }
         let m = idem();
         let mut set = m.lock().expect("idempotency mutex poisoned");
         if set.contains(key) {
@@ -175,50 +220,85 @@ pub mod adaptive {
         }
     }
 
-    /// Apply a decision to the running system with options.
-    pub fn apply_with_options(decision: &Decision, opts: &ApplyOptions) -> Result<()> {
-        // Optional telemetry: count decisions with labels
-        #[cfg(feature = "telemetry")]
-        let app = std::env::var("NC_PROFILE_JSONL")
-            .ok()
-            .and_then(|p| telemetry::profiling::Appender::open(p).ok());
+    /// Minimal orchestrator shim for the Repartition path.
+    ///
+    /// This function is feature-gated and will only compile when the "orchestrator" feature
+    /// is enabled for the runtime crate. It delegates to the orchestrator crate to compute
+    /// a partition plan. Future work will wire the plan into live runtime state.
+    #[cfg(feature = "orchestrator")]
+    fn orchestrator_repartition_shim() -> Result<()> {
+        // Leverage orchestrator API to ensure linkage and provide forward-compatible hook.
+        let g = nc_nir::Graph::new("adaptive-repartition-probe");
+        let targets = ["riscv64gcv_linux"];
+        match nc_orchestrator::partition(&g, &targets) {
+            Ok(_plan) => Ok(()),
+            Err(e) => Err(RuntimeError::ApplyFailed(format!("orchestrator partition failed: {}", e))),
+        }
+    }
 
+    /// Apply a decision to the running system with options.
+    ///
+    /// Behavior:
+    /// - Dry-run returns Ok(()) without side-effects.
+    /// - NoChange returns Ok(()) and does not alter idempotency state.
+    /// - Repartition delegates to the orchestrator when the "orchestrator" feature is enabled.
+    ///   Otherwise returns IntegrationUnavailable("feature 'orchestrator' not enabled").
+    /// - Reschedule and Throttle return NotSupported with targeted messages.
+    /// - For mutating decisions, duplicate idempotency_key returns IdempotencyConflict.
+    pub fn apply_with_options(decision: &Decision, opts: &ApplyOptions) -> Result<()> {
+        // Optional telemetry: count decisions with labels.
         #[cfg(feature = "telemetry")]
-        if let Some(a) = app.as_ref() {
-            let mut labels = std::collections::BTreeMap::new();
-            labels.insert("decision".to_string(), format!("{:?}", decision));
-            if let Some(k) = &opts.idempotency_key {
-                labels.insert("idem".to_string(), k.clone());
+        {
+            let app = std::env::var("NC_PROFILE_JSONL")
+                .ok()
+                .and_then(|p| telemetry::profiling::Appender::open(p).ok());
+            if let Some(a) = app.as_ref() {
+                let mut labels = std::collections::BTreeMap::new();
+                labels.insert("decision".to_string(), format!("{:?}", decision));
+                if let Some(k) = &opts.idempotency_key {
+                    labels.insert("idem".to_string(), k.clone());
+                }
+                let _ = a.counter("runtime.decisions", 1.0, labels);
             }
-            let _ = a.counter("runtime.decisions", 1.0, labels);
         }
 
-        // Dry-run: no side effects beyond optional telemetry above
+        // Dry-run: no side effects beyond optional telemetry above.
         if opts.dry_run {
             return Ok(());
         }
 
-        // Idempotency: short-circuit if this key has already been applied.
+        // NoChange: explicitly avoid idempotency tracking.
+        if matches!(decision, Decision::NoChange) {
+            return Ok(());
+        }
+
+        // Idempotency for mutating decisions.
         if let Some(k) = &opts.idempotency_key {
-            if register_idem_if_new(k) {
-                return Ok(());
+            if already_applied_and_mark(decision, k) {
+                return Err(RuntimeError::IdempotencyConflict(k.clone()));
             }
         }
 
         match decision {
-            Decision::NoChange => Ok(()),
+            Decision::NoChange => Ok(()), // unreachable due to guard above; keep for exhaustiveness
             Decision::Repartition => {
-                // TODO(H2-5): invoke orchestrator handoff and update partition context
-                Ok(())
+                #[cfg(feature = "orchestrator")]
+                {
+                    orchestrator_repartition_shim()
+                }
+                #[cfg(not(feature = "orchestrator"))]
+                {
+                    Err(RuntimeError::IntegrationUnavailable(
+                        "feature 'orchestrator' not enabled".to_string(),
+                    ))
+                }
             }
-            Decision::Reschedule => {
-                // TODO(H2-5): integrate scheduler to adjust execution ordering
-                Ok(())
-            }
-            Decision::Throttle => {
-                // TODO(H2-5): apply rate limiting via backend/runtime shims
-                Ok(())
-            }
+            Decision::Reschedule => Err(RuntimeError::NotSupported(
+                "reschedule path not yet available".to_string(),
+            )),
+            Decision::Throttle => Err(RuntimeError::NotSupported(
+                "throttle path not yet available".to_string(),
+            )),
         }
     }
 
@@ -230,6 +310,7 @@ pub mod adaptive {
     #[cfg(test)]
     mod tests {
         use super::*;
+
         #[test]
         fn noop_policy_decides_no_change() {
             let p = NoOpPolicy;
@@ -238,17 +319,59 @@ pub mod adaptive {
         }
 
         #[test]
-        fn apply_with_options_dry_run_is_ok() {
-            let opts = ApplyOptions { idempotency_key: Some("key".into()), dry_run: true };
-            apply_with_options(&Decision::Repartition, &opts).expect("dry run ok");
+        fn no_change_is_noop() {
+            let opts = ApplyOptions { idempotency_key: Some("k-noop".into()), dry_run: false };
+            apply_with_options(&Decision::NoChange, &opts).expect("no-change ok");
+
+            // Using the same key for a mutating decision must NOT conflict because NoChange
+            // must not have mutated the idempotency registry.
+            let res = apply_with_options(&Decision::Repartition, &opts);
+            if let Err(RuntimeError::IdempotencyConflict(k)) = &res {
+                panic!("NoChange mutated idempotency registry; conflict on key {}", k);
+            }
         }
 
         #[test]
-        fn apply_handles_all_decisions_ok() {
-            apply(&Decision::NoChange).expect("no change ok");
-            apply(&Decision::Repartition).expect("repartition ok");
-            apply(&Decision::Reschedule).expect("reschedule ok");
-            apply(&Decision::Throttle).expect("throttle ok");
+        fn idempotency_rejects_duplicate_key() {
+            // Use a mutating decision that is currently NotSupported to exercise idempotency.
+            let opts = ApplyOptions { idempotency_key: Some("dup-key".into()), dry_run: false };
+            let _ = apply_with_options(&Decision::Throttle, &opts); // first attempt marks key
+            let res2 = apply_with_options(&Decision::Throttle, &opts);
+            match res2 {
+                Err(RuntimeError::IdempotencyConflict(k)) => assert_eq!(k, "dup-key"),
+                other => panic!("expected IdempotencyConflict, got {:?}", other),
+            }
+        }
+
+        #[cfg(not(feature = "orchestrator"))]
+        #[test]
+        fn repartition_feature_disabled_returns_integration_unavailable() {
+            let opts = ApplyOptions { idempotency_key: Some("repart-1".into()), dry_run: false };
+            let res = apply_with_options(&Decision::Repartition, &opts);
+            match res {
+                Err(RuntimeError::IntegrationUnavailable(msg)) => {
+                    assert_eq!(msg, "feature 'orchestrator' not enabled");
+                }
+                other => panic!("expected IntegrationUnavailable, got {:?}", other),
+            }
+        }
+
+        #[cfg(feature = "orchestrator")]
+        #[test]
+        fn repartition_feature_enabled_path_compiles() {
+            let opts = ApplyOptions { idempotency_key: Some("repart-ok".into()), dry_run: false };
+            let res = apply_with_options(&Decision::Repartition, &opts);
+            // Either we reach the shim and get Ok, or the shim returns a typed error.
+            assert!(res.is_ok()
+                || matches!(res, Err(RuntimeError::NotSupported(_)) | Err(RuntimeError::ApplyFailed(_))));
+        }
+
+        #[test]
+        fn reschedule_and_throttle_not_supported() {
+            let r = apply_with_options(&Decision::Reschedule, &ApplyOptions::default());
+            assert!(matches!(r, Err(RuntimeError::NotSupported(_))));
+            let t = apply_with_options(&Decision::Throttle, &ApplyOptions::default());
+            assert!(matches!(t, Err(RuntimeError::NotSupported(_))));
         }
     }
 }

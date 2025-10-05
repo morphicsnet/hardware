@@ -105,3 +105,56 @@ CLI telemetry flags:
   - Wheels are built via maturin; see [pyproject.toml](pyproject.toml) for classifiers and `requires-python`.
   - The Rust extension uses the stable CPython ABI (no per-Python rebuilds required for supported versions).
 
+## CI artifacts: Coverage and Benchmarks
+
+Where to find workflow artifacts
+- In GitHub, open the Actions tab.
+- Choose the "Coverage" or "Bench" workflow.
+- Click the latest successful run on the default branch.
+- In the run summary, locate the "Artifacts" panel.
+
+Artifact names and contents
+- coverage-lcov → lcov.info (repo root)
+- coverage-html → coverage/html (HTML report directory)
+- criterion-baseline → criterion-baseline.tar.gz (tar of target/criterion)
+
+Viewing instructions
+
+Coverage HTML
+- Download coverage-html and extract it, then open the report entry point:
+
+```bash
+open coverage/html/index.html
+# or on Linux:
+# xdg-open coverage/html/index.html
+```
+
+LCOV (lcov.info -> HTML via genhtml)
+- macOS/Homebrew:
+
+```bash
+brew install lcov
+genhtml lcov.info -o coverage/html
+open coverage/html/index.html
+```
+
+Criterion baseline
+- Download criterion-baseline, extract the tarball, then open the reports:
+
+```bash
+tar -xzf criterion-baseline.tar.gz
+open target/criterion/index.html
+# or open a specific benchmark:
+# open target/criterion/<bench-name>/report/index.html
+```
+
+Local reproduction (run locally without CI)
+```bash
+# Coverage (requires cargo-llvm-cov and nextest installed)
+cargo llvm-cov clean --workspace
+cargo llvm-cov nextest --workspace --no-report --doctests
+cargo llvm-cov report --html --output-path coverage/html
+
+# Benchmarks (produces target/criterion)
+cargo bench --workspace
+```

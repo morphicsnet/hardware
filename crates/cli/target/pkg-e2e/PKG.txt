@@ -1,0 +1,3 @@
+neuro-compiler package
+created_at_unix=1759655323
+cli_version=0.0.1

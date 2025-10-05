@@ -1,71 +1,61 @@
-name: Coverage and Benchmarks
+name: Coverage
+
 on:
   push:
     branches:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   coverage:
-    name: Coverage (cargo-llvm-cov)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Install Rust toolchain
+        with:
+          submodules: recursive
+
+      - name: Install Rust (stable) with llvm-tools-preview
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: llvm-tools-preview
-      - name: Cache target
-        uses: actions/cache@v4
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
         with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          tool: nextest
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-      - name: Generate coverage report
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
-      - name: Upload coverage artifact
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clean coverage data
+        run: cargo llvm-cov clean --workspace
+
+      - name: Run tests with coverage (nextest)
+        run: cargo llvm-cov nextest --workspace --no-report --doctests
+
+      - name: Generate LCOV report
+        run: cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: Generate HTML report
+        run: cargo llvm-cov report --html --output-dir coverage/html
+
+      - name: Upload LCOV artifact
         uses: actions/upload-artifact@v4
         with:
           name: coverage-lcov
           path: lcov.info
 
-  benches:
-    name: Criterion Benches
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      - name: Cache target
-        uses: actions/cache@v4
-        with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run benches (if present)
-        run: |
-          if ls benches/*.rs > /dev/null 2>&1; then
-            cargo bench -- --save-baseline ci
-          else
-            echo "No benches present; skipping benches."
-          fi
-      - name: Upload criterion reports
-        if: success() && hashFiles('target/criterion/**') != ''
+      - name: Upload HTML coverage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: criterion-reports
-          path: target/criterion
+          name: coverage-html
+          path: coverage/html
