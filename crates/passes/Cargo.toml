@@ -18,6 +18,7 @@ telemetry = ["dep:nc-telemetry"]
 anyhow = { workspace = true }
 tracing = { workspace = true }
 nc-nir = { path = "../nir" }
+serde = { version = "1", features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 nc-hal = { path = "../hal" }

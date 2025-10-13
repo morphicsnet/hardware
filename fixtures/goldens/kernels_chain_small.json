@@ -1,0 +1,6 @@
+{
+  "kernels": [
+    { "id": 0, "op": "Add", "inputs": ["x:out0"], "outputs": ["y:in0"] },
+    { "id": 1, "op": "ReLU", "inputs": ["y:out0"], "outputs": ["z:in0"] }
+  ]
+}

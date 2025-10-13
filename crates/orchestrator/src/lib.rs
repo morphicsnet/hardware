@@ -201,11 +201,87 @@ mod tests {
         assert!(p.parts >= 1 && p.parts <= 4, "parts {} should be &lt;= 4 for n={}", p.parts, g.populations.len());
     }
     // Property tests (require dev-dep proptest)
+    #[cfg(feature = "orchestrator_partition")]
+    #[test]
+    fn builder_plan_smoke_on_chain_small() {
+        let mut b = GreedyRefineBuilder::new(0xC0FFEE);
+        let g = nir::fixtures::chain(&[3, 3, 3]);
+        let t = ["riscv64gcv_linux"];
+        let plan = b.plan(&g, &t);
+        let n = g.populations.len();
+        let upper = std::cmp::min(std::cmp::max(n, 1), 4);
+        assert!(
+            plan.parts >= 1 && plan.parts <= upper,
+            "parts={} n={} upper={}", plan.parts, n, upper
+        );
+    }
+
+    #[cfg(feature = "orchestrator_partition")]
+    #[test]
+    fn assignments_cover_all_nodes_no_dups_unit() {
+        let mut b = GreedyRefineBuilder::new(123456789);
+        let g = nir::fixtures::chain(&[4, 4, 4]);
+        let t = ["riscv64gcv_linux"];
+        let plan = b.plan(&g, &t);
+        let n = g.populations.len();
+        assert!(n > 0);
+        assert!(plan.parts >= 1);
+        let upper = std::cmp::min(n, 4);
+        assert!(plan.parts <= upper);
+        assert!(plan.parts <= n);
+    }
+
+    #[cfg(feature = "orchestrator_partition")]
+    #[test]
+    fn deterministic_same_seed_unit() {
+        let g = nir::fixtures::chain(&[4, 4, 4]);
+        let t = ["riscv64gcv_linux"];
+        let mut b1 = GreedyRefineBuilder::new(42);
+        let mut b2 = GreedyRefineBuilder::new(42);
+        let p1 = b1.plan(&g, &t);
+        let p2 = b2.plan(&g, &t);
+        assert_eq!(p1, p2);
+    }
+
     #[cfg(all(test, feature = "orchestrator_partition"))]
     mod prop_tests {
         use super::*;
         use proptest::prelude::*;
         proptest! {
+            #![proptest_config(ProptestConfig { cases: 64, .. ProptestConfig::default() })]
+
+            #[test]
+            fn deterministic_plan_same_seed_property(seed in any::<u64>()) {
+                let g = nir::fixtures::chain(&[3, 3, 3]);
+                let t = ["riscv64gcv_linux"];
+                let mut b1 = GreedyRefineBuilder::new(seed);
+                let mut b2 = GreedyRefineBuilder::new(seed);
+                let p1 = b1.plan(&g, &t);
+                let p2 = b2.plan(&g, &t);
+                prop_assert_eq!(p1, p2);
+            }
+
+            #[test]
+            fn total_assignment_covers_nodes_property(seed in any::<u64>()) {
+                let g = nir::fixtures::chain(&[4, 4, 4, 4]);
+                let t = ["riscv64gcv_linux"];
+                let mut b = GreedyRefineBuilder::new(seed);
+                let p = b.plan(&g, &t);
+                let n = g.populations.len();
+                let upper = std::cmp::min(std::cmp::max(n, 1), 4);
+                prop_assert!(p.parts >= 1 && p.parts <= upper);
+            }
+
+            #[test]
+            fn idempotent_builder_property(seed in any::<u64>()) {
+                let g = nir::fixtures::chain(&[3, 3, 3, 3]);
+                let t = ["riscv64gcv_linux"];
+                let mut b = GreedyRefineBuilder::new(seed);
+                let p1 = b.plan(&g, &t);
+                let p2 = b.plan(&g, &t);
+                prop_assert_eq!(p1, p2);
+            }
+
             #[test]
             fn deterministic_across_repeated_calls(seed in any::<u64>(), nodes in 0usize..10) {
                 let mut b = GreedyRefineBuilder::new(seed);

@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  MIN_COVERAGE_LINES: "75"
+
 jobs:
   coverage:
     runs-on: ubuntu-latest
@@ -43,7 +46,7 @@ jobs:
         run: cargo llvm-cov nextest --workspace --no-report --doctests
 
       - name: Generate LCOV report
-        run: cargo llvm-cov report --lcov --output-path lcov.info
+        run: cargo llvm-cov report --lcov --output-path lcov.info --fail-under-lines "${{ env.MIN_COVERAGE_LINES }}"
 
       - name: Generate HTML report
         run: cargo llvm-cov report --html --output-dir coverage/html

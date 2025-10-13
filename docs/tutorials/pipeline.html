@@ -175,6 +175,7 @@
 
                 <div id="content" class="content">
                     <main>
+                    <!-- Generated from mdBook sources. If this page is out of date, rebuild the book. Source: docs/tutorials/pipeline.md -->
                         <h1 id="mapping-pipeline-tutorial"><a class="header" href="#mapping-pipeline-tutorial">Mapping Pipeline Tutorial</a></h1>
 <p>This tutorial shows how to run the end-to-end lowering/mapping pipeline from the CLI and Python, including capability-aware passes, HAL manifest attachment, simulator emission, and telemetry profiling.</p>
 <p>Core references</p>
@@ -247,7 +248,7 @@ cargo run -p neuro-compiler-cli -- lower \
 </code></pre>
 <ol start="5">
 <li>Simulate the model (NEURON/CoreNEURON/Arbor)
-Simulators emit runnable artifacts (or stubs, depending on features) using the same NIR input.</li>
+This tutorial demonstrates the end-to-end pass pipeline (validate → partition → placement → routing → timing → resource check) using the CLI. When features are disabled by build flags, the CLI prints precise disabled messages; otherwise real artifacts are produced.</li>
 </ol>
 <pre><code class="language-bash"># Simulate with NEURON artifacts
 cargo run -p neuro-compiler-cli -- simulate \

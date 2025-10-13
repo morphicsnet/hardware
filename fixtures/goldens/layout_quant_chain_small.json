@@ -1,0 +1,18 @@
+{
+  "buffers": [
+    { "name": "y:out0", "index": 0 },
+    { "name": "z:out0", "index": 1 }
+  ],
+  "quant": [
+    {
+      "kernel_id": 0,
+      "inputs": [ { "dtype": "f32", "scale": 1.0, "zero_point": 0 } ],
+      "outputs": [ { "dtype": "f32", "scale": 1.0, "zero_point": 0 } ]
+    },
+    {
+      "kernel_id": 1,
+      "inputs": [ { "dtype": "f32", "scale": 1.0, "zero_point": 0 } ],
+      "outputs": [ { "dtype": "f32", "scale": 1.0, "zero_point": 0 } ]
+    }
+  ]
+}

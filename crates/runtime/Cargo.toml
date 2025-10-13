@@ -10,12 +10,13 @@ path = "src/lib.rs"
 
 [features]
 default = []
-telemetry = ["dep:nc-telemetry"]
+telemetry = ["dep:nc-telemetry", "dep:tracing"]
 orchestrator = ["dep:nc-orchestrator"]
+hal-shims = []
 
 [dependencies]
 anyhow = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, optional = true, default-features = false, features = ["std"] }
 nc-nir = { path = "../nir" }
 nc-telemetry = { path = "../telemetry", optional = true, package = "nc-telemetry" }
 nc-orchestrator = { path = "../orchestrator", optional = true, package = "nc-orchestrator" }

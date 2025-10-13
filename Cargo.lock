@@ -965,6 +965,7 @@ dependencies = [
  "nc-nir",
  "nc-orchestrator",
  "nc-telemetry",
+ "serde",
  "serde_json",
  "thiserror",
  "tracing",

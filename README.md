@@ -107,6 +107,11 @@ CLI telemetry flags:
 
 ## CI artifacts: Coverage and Benchmarks
 
+### Coverage thresholds
+The Coverage workflow enforces a minimum line-coverage gate; the job fails if line coverage is below the configured threshold.
+Adjust the threshold by editing MIN_COVERAGE_LINES in [.github/workflows/coverage.yml](.github/workflows/coverage.yml).
+This value is the single source of truth used by cargo-llvm-cov with --fail-under-lines.
+
 Where to find workflow artifacts
 - In GitHub, open the Actions tab.
 - Choose the "Coverage" or "Bench" workflow.

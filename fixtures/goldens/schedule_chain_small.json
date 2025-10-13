@@ -1,0 +1,5 @@
+{
+  "groups": [
+    { "id": 0, "kernels": [0, 1], "ops": ["Add", "ReLU"], "outputs": ["z:out0"] }
+  ]
+}

@@ -10,6 +10,11 @@ use std::collections::BTreeMap;
 use nc_telemetry as telemetry;
 use nc_orchestrator as orchestrator;
 
+pub mod lower_to_kernels;
+pub mod memory_layout_and_quant;
+pub mod kernel_fusion_and_scheduling;
+pub mod validation;
+
 #[derive(Debug, Error)]
 pub enum PassError {
     #[error("mapping violation: {0}")]
@@ -712,6 +717,21 @@ pub fn build_pipeline(pm: &mut PassManager, names: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Register all generic NIR passes (for generic::Registry) including "lower_to_kernels".
+pub fn register_generic_nir_passes(reg: &mut generic::Registry<nir::Graph>) {
+    lower_to_kernels::register(reg);
+    memory_layout_and_quant::register(reg);
+    kernel_fusion_and_scheduling::register(reg);
+    validation::register(reg);
+}
+
+/// Convenience: create a default registry pre-registered with built-in passes.
+pub fn default_generic_nir_registry() -> generic::Registry<nir::Graph> {
+    let mut r = generic::Registry::<nir::Graph>::new();
+    register_generic_nir_passes(&mut r);
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,5 +766,317 @@ mod tests {
         assert_eq!(out.name, "tq");
         assert!(out.connections[0].weight.is_finite());
         assert!(out.connections[0].weight >= -1.0 && out.connections[0].weight <= 1.0);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Generic, lightweight pass API and pipeline descriptor (compile-only for now)
+//------------------------------------------------------------------------------
+// These types are intentionally generic over the module type M and do not couple
+// to NIR. They live under the `generic` module to avoid any disruption to the
+// existing NIR-specific Pass trait and PassManager that other crates use today.
+pub mod generic {
+    use serde::{Deserialize, Serialize};
+    use serde_json::Value;
+    use std::collections::HashMap;
+    use std::fmt;
+
+    // Outcome and error -----------------------------------------------------------------
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PassOutcome {
+        Changed,
+        Unchanged,
+    }
+
+    #[derive(Debug)]
+    pub enum PassError {
+        InvalidInput(String),
+        InvariantViolation(String),
+        Unsupported(String),
+        Internal(String),
+        Io(std::io::Error),
+    }
+
+    impl fmt::Display for PassError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                PassError::InvalidInput(s) => write!(f, "invalid input: {s}"),
+                PassError::InvariantViolation(s) => write!(f, "invariant violation: {s}"),
+                PassError::Unsupported(s) => write!(f, "unsupported: {s}"),
+                PassError::Internal(s) => write!(f, "internal error: {s}"),
+                PassError::Io(e) => write!(f, "io error: {e}"),
+            }
+        }
+    }
+
+    impl std::error::Error for PassError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                PassError::Io(e) => Some(e),
+                _ => None,
+            }
+        }
+    }
+
+    impl From<std::io::Error> for PassError {
+        fn from(e: std::io::Error) -> Self {
+            PassError::Io(e)
+        }
+    }
+
+    pub type PassResult = Result<PassOutcome, PassError>;
+
+    // Context ---------------------------------------------------------------------------
+
+    #[derive(Debug, Default, Clone)]
+    pub struct PassContext {
+        pub config: Option<Value>,
+        pub run_id: Option<String>,
+    }
+
+    // Generic pass trait ----------------------------------------------------------------
+
+    pub trait Pass<M>: Send + Sync {
+        fn name(&self) -> &'static str;
+        fn run(&self, module: &mut M, ctx: &mut PassContext) -> PassResult;
+    }
+
+    // Pipeline and execution ------------------------------------------------------------
+
+    pub struct Pipeline<M> {
+        // Keep per-step config to thread into PassContext on execution
+        steps: Vec<(Box<dyn Pass<M>>, Option<Value>)>,
+    }
+
+    impl<M> Pipeline<M> {
+        pub fn new() -> Self {
+            Self { steps: Vec::new() }
+        }
+
+        pub fn with_steps(steps: Vec<(Box<dyn Pass<M>>, Option<Value>)>) -> Self {
+            Self { steps }
+        }
+
+        /// Executes steps in order; if any step returns Changed, overall is Changed.
+        /// On error, propagates PassError immediately.
+        pub fn run(&self, module: &mut M, ctx: &mut PassContext) -> PassResult {
+            let mut changed_any = false;
+            for (p, cfg) in &self.steps {
+                ctx.config = cfg.clone();
+                let out = p.run(module, ctx)?;
+                if matches!(out, PassOutcome::Changed) {
+                    changed_any = true;
+                }
+            }
+            Ok(if changed_any {
+                PassOutcome::Changed
+            } else {
+                PassOutcome::Unchanged
+            })
+        }
+    }
+
+    // Descriptor + builder + registry ---------------------------------------------------
+
+    #[derive(Debug, Clone, Deserialize, Serialize)]
+    pub struct PassSpec {
+        pub name: String,
+        #[serde(default)]
+        pub config: Option<Value>,
+    }
+
+    /// PipelineDescriptor holds an ordered list of passes to run.
+    ///
+    /// Example (JSON descriptor parsed with serde_json), then registry + pipeline:
+    /// ```ignore
+    /// use nc_passes::generic::{Registry, PipelineDescriptor, PassSpec, PassContext, PassOutcome, Pass};
+    ///
+    /// #[derive(Default)]
+    /// struct MyModule { pub n: usize }
+    ///
+    /// struct Noop;
+    /// impl Pass<MyModule> for Noop {
+    ///     fn name(&self) -> &'static str { "noop" }
+    ///     fn run(&self, _m: &mut MyModule, _ctx: &mut PassContext) -> Result<PassOutcome, _> {
+    ///         Ok(PassOutcome::Unchanged)
+    ///     }
+    /// }
+    ///
+    /// struct Inc;
+    /// impl Pass<MyModule> for Inc {
+    ///     fn name(&self) -> &'static str { "inc" }
+    ///     fn run(&self, m: &mut MyModule, ctx: &mut PassContext) -> Result<PassOutcome, _> {
+    ///         let delta = ctx.config.as_ref()
+    ///             .and_then(|v| v.get("delta"))
+    ///             .and_then(|v| v.as_u64())
+    ///             .unwrap_or(1) as usize;
+    ///         m.n += delta;
+    ///         Ok(PassOutcome::Changed)
+    ///     }
+    /// }
+    ///
+    /// fn mk_noop(_: Option<&serde_json::Value>) -> Box<dyn Pass<MyModule>> { Box::new(Noop) }
+    /// fn mk_inc(_: Option<&serde_json::Value>) -> Box<dyn Pass<MyModule>> { Box::new(Inc) }
+    ///
+    /// let json = r#"[{"name":"noop"},{"name":"inc","config":{"delta":2}}]"#;
+    /// let passes: Vec<PassSpec> = serde_json::from_str(json).unwrap();
+    /// let desc = PipelineDescriptor { passes };
+    ///
+    /// let mut reg = Registry::<MyModule>::new();
+    /// reg.register("noop", mk_noop);
+    /// reg.register("inc", mk_inc);
+    ///
+    /// let p = reg.build_pipeline(&desc).unwrap();
+    /// let mut module = MyModule::default();
+    /// let mut ctx = PassContext::default();
+    /// let out = p.run(&mut module, &mut ctx).unwrap();
+    /// assert!(matches!(out, PassOutcome::Changed));
+    /// ```
+    #[derive(Debug, Clone, Deserialize, Serialize)]
+    pub struct PipelineDescriptor {
+        pub passes: Vec<PassSpec>,
+    }
+
+    /// Registry maps a pass name to a constructor taking an optional config.
+    ///
+    /// It can then build a typed Pipeline from a PipelineDescriptor.
+    pub struct Registry<M> {
+        ctors: HashMap<&'static str, fn(Option<&Value>) -> Box<dyn Pass<M>>>,
+    }
+
+    impl<M> Registry<M> {
+        pub fn new() -> Self {
+            Self { ctors: HashMap::new() }
+        }
+
+        pub fn register(
+            &mut self,
+            name: &'static str,
+            ctor: fn(Option<&Value>) -> Box<dyn Pass<M>>,
+        ) {
+            self.ctors.insert(name, ctor);
+        }
+
+        pub fn build_pipeline(&self, desc: &PipelineDescriptor) -> Result<Pipeline<M>, PassError> {
+            let mut steps = Vec::with_capacity(desc.passes.len());
+            for spec in &desc.passes {
+                let ctor = self
+                    .ctors
+                    .get(spec.name.as_str())
+                    .ok_or_else(|| PassError::Unsupported(format!("unknown pass '{}'", spec.name)))?;
+                let pass = ctor(spec.config.as_ref());
+                steps.push((pass, spec.config.clone()));
+            }
+            Ok(Pipeline { steps })
+        }
+    }
+
+    // Unit tests -----------------------------------------------------------------------
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[derive(Debug, Default)]
+        struct DummyModule {
+            pub n: usize,
+        }
+
+        struct NoOpPass;
+        impl Pass<DummyModule> for NoOpPass {
+            fn name(&self) -> &'static str { "noop" }
+            fn run(&self, _module: &mut DummyModule, _ctx: &mut PassContext) -> PassResult {
+                Ok(PassOutcome::Unchanged)
+            }
+        }
+
+        struct IncPass;
+        impl Pass<DummyModule> for IncPass {
+            fn name(&self) -> &'static str { "inc" }
+            fn run(&self, module: &mut DummyModule, ctx: &mut PassContext) -> PassResult {
+                let delta = ctx.config.as_ref()
+                    .and_then(|v| v.get("delta"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(1) as usize;
+                module.n += delta;
+                Ok(PassOutcome::Changed)
+            }
+        }
+
+        fn mk_noop(_: Option<&Value>) -> Box<dyn Pass<DummyModule>> { Box::new(NoOpPass) }
+        fn mk_inc(_: Option<&Value>) -> Box<dyn Pass<DummyModule>> { Box::new(IncPass) }
+
+        #[test]
+        fn pipeline_builds_and_runs_smoke() {
+            let json = r#"[{"name":"noop"},{"name":"inc","config":{"delta":2}},{"name":"noop"}]"#;
+            let passes: Vec<PassSpec> = serde_json::from_str(json).unwrap();
+            let desc = PipelineDescriptor { passes };
+
+            let mut reg = Registry::<DummyModule>::new();
+            reg.register("noop", mk_noop);
+            reg.register("inc", mk_inc);
+
+            let pipeline = reg.build_pipeline(&desc).unwrap();
+
+            let mut m = DummyModule { n: 0 };
+            let mut ctx = PassContext::default();
+            let outcome = pipeline.run(&mut m, &mut ctx).unwrap();
+
+            assert_eq!(m.n, 2);
+            assert!(matches!(outcome, PassOutcome::Changed));
+        }
+
+        #[test]
+        fn unknown_pass_yields_error() {
+            let json = r#"[{"name":"missing"}]"#;
+            let passes: Vec<PassSpec> = serde_json::from_str(json).unwrap();
+            let desc = PipelineDescriptor { passes };
+
+            let reg = Registry::<DummyModule>::new();
+            match reg.build_pipeline(&desc) {
+                Err(PassError::Unsupported(_)) => {}
+                _ => panic!("expected PassError::Unsupported for unknown pass"),
+            }
+        }
+
+        #[test]
+        fn unchanged_when_all_noops() {
+            let json = r#"[{"name":"noop"},{"name":"noop"}]"#;
+            let passes: Vec<PassSpec> = serde_json::from_str(json).unwrap();
+            let desc = PipelineDescriptor { passes };
+
+            let mut reg = Registry::<DummyModule>::new();
+            reg.register("noop", mk_noop);
+
+            let pipeline = reg.build_pipeline(&desc).unwrap();
+
+            let mut m = DummyModule { n: 0 };
+            let mut ctx = PassContext::default();
+            let outcome = pipeline.run(&mut m, &mut ctx).unwrap();
+
+            assert!(matches!(outcome, PassOutcome::Unchanged));
+            assert_eq!(m.n, 0);
+        }
+
+        #[test]
+        fn config_is_threaded_into_pass_context() {
+            // Two inc passes with different deltas ensure per-step config is visible via ctx.config.
+            let json = r#"[{"name":"inc","config":{"delta":3}},{"name":"inc","config":{"delta":4}}]"#;
+            let passes: Vec<PassSpec> = serde_json::from_str(json).unwrap();
+            let desc = PipelineDescriptor { passes };
+
+            let mut reg = Registry::<DummyModule>::new();
+            reg.register("inc", mk_inc);
+
+            let pipeline = reg.build_pipeline(&desc).unwrap();
+
+            let mut m = DummyModule { n: 0 };
+            let mut ctx = PassContext::default();
+            let outcome = pipeline.run(&mut m, &mut ctx).unwrap();
+
+            assert!(matches!(outcome, PassOutcome::Changed));
+            assert_eq!(m.n, 7);
+        }
     }
 }
