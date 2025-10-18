@@ -14,6 +14,7 @@ pub mod lower_to_kernels;
 pub mod memory_layout_and_quant;
 pub mod kernel_fusion_and_scheduling;
 pub mod validation;
+pub mod eir_validate;
 
 #[derive(Debug, Error)]
 pub enum PassError {
@@ -730,6 +731,32 @@ pub fn default_generic_nir_registry() -> generic::Registry<nir::Graph> {
     let mut r = generic::Registry::<nir::Graph>::new();
     register_generic_nir_passes(&mut r);
     r
+}
+
+/// Build a non-invasive pipeline that runs EIR validation first, followed by the
+/// current default generic NIR passes. This does not alter any default pipelines
+/// used elsewhere; it simply provides an additive constructor for consumers.
+pub fn pipeline_with_eir_validation() -> generic::Pipeline<nir::Graph> {
+    // Build a local registry and register both the EIR validator and the existing passes.
+    let mut reg = generic::Registry::<nir::Graph>::new();
+    eir_validate::register(&mut reg);
+    lower_to_kernels::register(&mut reg);
+    memory_layout_and_quant::register(&mut reg);
+    kernel_fusion_and_scheduling::register(&mut reg);
+    validation::register(&mut reg);
+
+    // Compose the descriptor: Validate EIR first, then the existing default set.
+    let passes = vec![
+        generic::PassSpec { name: "eir_validate".into(), config: None },
+        generic::PassSpec { name: "lower_to_kernels".into(), config: None },
+        generic::PassSpec { name: "memory_layout_and_quant".into(), config: None },
+        generic::PassSpec { name: "kernel_fusion_and_scheduling".into(), config: None },
+        generic::PassSpec { name: "validation".into(), config: None },
+    ];
+    let desc = generic::PipelineDescriptor { passes };
+
+    // Build the concrete pipeline (panic on programmer error to keep signature simple).
+    reg.build_pipeline(&desc).expect("pipeline_with_eir_validation build")
 }
 
 #[cfg(test)]

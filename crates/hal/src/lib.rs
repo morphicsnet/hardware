@@ -438,6 +438,56 @@ mod tests_validate {
         let m = parse_target_manifest_str(s).unwrap();
         assert!(validate_manifest(&m).is_err(), "expected invalid endianness");
     }
+    /// Backend adapter registry (opt-in).
+    ///
+    /// This module is only compiled when the feature "backend-cpu-ref-sim" is enabled.
+    /// It exposes a simple discovery and dispatch API that allows callers to run a
+    /// backend by name without linking UEC or importing its code.
+    ///
+    /// Notes:
+    /// - The adapter crate shells out to an external `uec` CLI; no licensing risk.
+    /// - Unknown names result in a friendly error.
+    /// - Options and RunReport are serialized as JSON to avoid leaking adapter types.
+    #[cfg(feature = "backend-cpu-ref-sim")]
+    pub mod backend_registry {
+        use super::*;
+        use std::path::Path;
+    
+        /// Return the list of available backend adapter names.
+        pub fn available_backends() -> &'static [&'static str] {
+            &["cpu-ref-sim"]
+        }
+    
+        /// Run a backend by name.
+        ///
+        /// - name: "cpu-ref-sim"
+        /// - plan: NIR graph (should include EIR graph attributes under "eir" or "eir_graph_attrs")
+        /// - out_trace: destination path for JSONL trace
+        /// - opts_json: optional JSON object matching nc-backend-cpu-ref-sim::BackendRunOpts
+        ///
+        /// On success returns a JSON value of nc-backend-cpu-ref-sim::RunReport.
+        pub fn run_backend_by_name(
+            name: &str,
+            plan: &nc_nir::Graph,
+            out_trace: &Path,
+            opts_json: Option<&serde_json::Value>,
+        ) -> anyhow::Result<serde_json::Value> {
+            match name {
+                "cpu-ref-sim" => {
+                    let opts: nc_backend_cpu_ref_sim::BackendRunOpts = match opts_json {
+                        Some(v) => serde_json::from_value(v.clone())?,
+                        None => Default::default(),
+                    };
+                    let be = nc_backend_cpu_ref_sim::CpuRefSimBackend::default();
+                    let report = be.run(plan, out_trace, &opts)?;
+                    Ok(serde_json::to_value(report)?)
+                }
+                other => {
+                    bail!("unknown backend adapter '{other}'. Available: {:?}", available_backends());
+                }
+            }
+        }
+    }
 
     #[test]
     fn validate_manifest_riscv_zvl_vs_vlen() {
@@ -453,5 +503,50 @@ mod tests_validate {
         "#;
         let m = parse_target_manifest_str(s).unwrap();
         assert!(validate_manifest(&m).is_err(), "expected zvl_bits_min > vlen_bits_max to fail");
+    }
+}
+
+#[cfg(feature = "backend-cpu-ref-sim")]
+pub mod backend_registry {
+    use anyhow::bail;
+    use std::path::Path;
+
+    /// Return the list of available backend adapter names.
+    pub fn available_backends() -> &'static [&'static str] {
+        &["cpu-ref-sim"]
+    }
+
+    /// Run a backend by name.
+    ///
+    /// - name: "cpu-ref-sim"
+    /// - plan: NIR graph (should include EIR attributes)
+    /// - out_trace: destination path for JSONL trace
+    /// - opts_json: optional JSON object matching nc-backend-cpu-ref-sim::BackendRunOpts
+    ///
+    /// On success returns a JSON value of nc-backend-cpu-ref-sim::RunReport.
+    pub fn run_backend_by_name(
+        name: &str,
+        plan: &nc_nir::Graph,
+        out_trace: &Path,
+        opts_json: Option<&serde_json::Value>,
+    ) -> anyhow::Result<serde_json::Value> {
+        match name {
+            "cpu-ref-sim" => {
+                let opts: nc_backend_cpu_ref_sim::BackendRunOpts = match opts_json {
+                    Some(v) => serde_json::from_value(v.clone())?,
+                    None => Default::default(),
+                };
+                let be = nc_backend_cpu_ref_sim::CpuRefSimBackend::default();
+                let report = be.run(plan, out_trace, &opts)?;
+                Ok(serde_json::to_value(report)?)
+            }
+            other => {
+                bail!(
+                    "unknown backend adapter '{}'. Available: {:?}",
+                    other,
+                    available_backends()
+                );
+            }
+        }
     }
 }

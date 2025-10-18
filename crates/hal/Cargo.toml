@@ -8,9 +8,19 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+# Opt-in feature to register the CPU reference simulator backend ("cpu-ref-sim").
+backend-cpu-ref-sim = ["dep:nc-backend-cpu-ref-sim"]
+
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 indexmap = { workspace = true }
 anyhow = { workspace = true }
 toml = { workspace = true }
+serde_json = { workspace = true }
+# Needed to type the Backend trait over NIR Graph
+nc-nir = { path = "../nir", package = "nc-nir" }
+# Optional registration path to the adapter crate (no linking by default)
+nc-backend-cpu-ref-sim = { path = "../backend_cpu_ref_sim", optional = true, package = "nc-backend-cpu-ref-sim" }

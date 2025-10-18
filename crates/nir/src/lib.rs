@@ -2,6 +2,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+pub mod eir;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Population {
     pub name: String,

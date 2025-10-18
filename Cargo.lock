@@ -764,6 +764,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nc-backend-cpu-ref-sim"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "nc-nir",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nc-backend-custom-asic"
 version = "0.0.1"
 dependencies = [
@@ -909,7 +919,10 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "indexmap",
+ "nc-backend-cpu-ref-sim",
+ "nc-nir",
  "serde",
+ "serde_json",
  "thiserror",
  "toml",
 ]

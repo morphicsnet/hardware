@@ -60,6 +60,7 @@ backend-dynaps = ["dep:nc-backend-dynaps"]
 backend-memxbar = ["dep:nc-backend-memxbar"]
 backend-custom-asic = ["dep:nc-backend-custom-asic"]
 backend-riscv = ["dep:nc-backend-riscv"]
+backend-cpu-ref-sim = ["nc-hal/backend-cpu-ref-sim"]
 
 
 sim-neuron = ["dep:nc-sim-neuron"]

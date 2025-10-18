@@ -1,0 +1,20 @@
+[package]
+name = "nc-backend-cpu-ref-sim"
+version = "0.0.1"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+description = "CPU reference simulator backend adapter (UEC CLI shim). Does not link/copy UEC."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+backend-cpu-ref-sim = []
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+nc-nir = { path = "../nir", package = "nc-nir" }

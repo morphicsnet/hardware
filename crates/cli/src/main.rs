@@ -4,6 +4,8 @@ use std::fs;
 #[cfg(feature = "telemetry")]
 use std::collections::BTreeMap;
 
+mod run;
+
 #[derive(Parser)]
 #[command(name = "neuro-compiler")]
 #[command(about = "Universal neuromorphic compiler (skeleton)")]
@@ -38,6 +40,9 @@ enum Command {
     Deploy(DeployArgs),
     /// Export NIR as MLIR (requires 'mlir' feature)
     ExportMlir(ExportMlirArgs),
+    /// Execute a NIR+EIR plan on a HAL backend (additive, feature-gated adapters)
+    #[command(alias = "exec")]
+    Run(run::RunArgs),
 }
 
 #[derive(Args, Debug)]
@@ -658,6 +663,11 @@ fn main() {
             {
                 let _ = &args;
                 println!("mlir export requires building CLI with feature 'mlir'");
+            }
+        }
+        Some(Command::Run(args)) => {
+            if let Err(e) = run::exec(args) {
+                eprintln!("run failed: {e}");
             }
         }
         None => {
