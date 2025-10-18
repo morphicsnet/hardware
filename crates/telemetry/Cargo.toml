@@ -22,6 +22,6 @@ serde_json = { workspace = true }
 ctrlc = { version = "3", optional = true }
 # Optional OTLP exporter deps
 opentelemetry = { version = "0.22", optional = true, default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.22", optional = true, default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.31", optional = true, default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.15", optional = true, default-features = false, features = ["http-proto", "trace"] }
 tracing-opentelemetry = { version = "0.23", optional = true }
