@@ -10,6 +10,7 @@ This repo currently provides:
 - **Pass System**: Extensible optimization and transformation pipeline
 - **Runtime Support**: Telemetry, orchestration, and ML optimization capabilities
 - **CLI Interface**: Command-line tools with target listing and lowering pipeline controls
+- **GUI Application**: Modern PyQt5 desktop application providing graphical access to all CLI functionalities
 - **Python Bindings**: Optional Python API with maturin integration (feature-gated)
 - **MLIR Bridge**: Integration with MLIR infrastructure (gated behind 'mlir' feature)
 - **RISC-V Backend**: Compile neuromorphic models to C code for a variety of RISC-V targets, from high-performance `RV64GCV` Linux systems to `RV32IMAC` bare-metal microcontrollers. Supported via the `backend-riscv` feature.
@@ -20,6 +21,9 @@ Quick start (build workspace):
 
 Try CLI:
 - cargo run -p neuro-compiler-cli -- list-targets
+
+Launch GUI (requires Python and PyQt5):
+- cd neuro-compiler-gui && python main.py
 
 Enable MLIR bridge (example exporter, feature-gated):
 - cargo build -p nc-mlir-bridge -F mlir
