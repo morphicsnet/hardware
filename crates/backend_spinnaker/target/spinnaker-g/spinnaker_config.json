@@ -1,0 +1,23 @@
+{
+  "aer_routing": {
+    "aer_key_space": "0x00000000",
+    "inter_chip_routes": [],
+    "routing_tables": []
+  },
+  "core_allocation": {
+    "chips_used": 1,
+    "core_allocations": [],
+    "cores_allocated": 0,
+    "total_capacity": 0,
+    "total_neurons": 0
+  },
+  "graph": "g",
+  "platform": "SpiNNaker2",
+  "synapse_programming": {
+    "synapse_configs": [],
+    "total_synapses": 0,
+    "weight_bits": 8
+  },
+  "target": "spinnaker",
+  "timestamp": "2025-12-30T10:46:14.077835+00:00"
+}

@@ -12,6 +12,7 @@ members = [
   "crates/mlopt",
   "crates/mlir-bridge",
   "crates/cli",
+  "crates/api",
   "crates/py",
   "crates/frontend_pynn",
   "crates/frontend_nengo",
@@ -34,6 +35,9 @@ members = [
   "crates/backend_memxbar",
   "crates/backend_custom_asic",
   "crates/backend_riscv",
+  "crates/backend_speck",
+  "crates/backend_xylo",
+  "crates/backend_brainscales",
   "crates/backend_cpu_ref_sim",
   "crates/xtask"
 ]
@@ -97,6 +101,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 clap = { version = "4", features = ["derive"] }
 petgraph = "0.6"
+chrono = { version = "0.4", features = ["serde"] }
 pyo3 = { version = "0.21", features = ["extension-module"] }
 
 [workspace.metadata.neuro-compiler]

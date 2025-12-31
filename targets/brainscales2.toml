@@ -1,0 +1,58 @@
+name = "brainscales2"
+vendor = "Heidelberg University"
+family = "BrainScaleS"
+version = "2.0"
+description = "BrainScaleS-2 - Wafer-scale accelerated analog computing"
+
+[capabilities]
+# Core capabilities
+weight_precisions = [6, 24]
+max_neurons_per_core = 512
+max_synapses_per_core = 32768
+time_resolution_ns = 100
+
+# BrainScaleS-2-specific extensions
+[capabilities.additional]
+# Analog-digital hybrid capabilities
+analog_precision_bits = 6      # 6-bit analog precision
+digital_precision_bits = 24    # 24-bit digital precision
+analog_memory_bits = 6         # Analog weight storage precision
+digital_control_bits = 24      # Digital control precision
+
+# Mixed-signal system features
+mixed_signal_system = true
+accelerated_analog = true
+analog_digital_conversion = true
+real_time_processing = true
+
+# Plasticity and learning
+plasticity_support = true
+learning_rate = 0.001
+plasticity_model = "stdp"      # Spike-Timing-Dependent Plasticity
+on_chip_learning = true
+synaptic_plasticity = true
+weight_update_precision = 6
+
+# Wafer-scale integration
+wafer_scale_integration = true
+hicann_x_chips = 8             # 8 HiCANN-X chips per wafer
+hicann_x_neurons = 512         # 512 neurons per HiCANN-X chip
+total_neurons = 4096           # 8 * 512 = 4096 total neurons
+crossbar_connectivity = true   # Crossbar synaptic connectivity
+
+# Performance characteristics
+analog_bandwidth_gbps = 100    # Analog interconnect bandwidth
+digital_bandwidth_gbps = 50    # Digital interconnect bandwidth
+power_consumption_w = 10       # Typical power consumption in watts
+
+[toolchain]
+# BrainScaleS uses proprietary toolchain
+compiler = "brainscales_sdk"
+build_system = "brainscales_build"
+deployment = "brainscales_deploy"
+
+[metadata]
+research_paper = "https://www.frontiersin.org/articles/10.3389/fnins.2014.00423/full"
+documentation = "https://brainscales.kip.uni-heidelberg.de/"
+purchase_info = "Contact Heidelberg University for access to BrainScaleS systems"
+community = "https://www.kip.uni-heidelberg.de/"

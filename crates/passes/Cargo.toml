@@ -24,3 +24,6 @@ thiserror = { workspace = true }
 nc-hal = { path = "../hal" }
 nc-orchestrator = { path = "../orchestrator", package = "nc-orchestrator" }
 nc-telemetry = { path = "../telemetry", optional = true, package = "nc-telemetry" }
+
+[dev-dependencies]
+tempfile = "3"

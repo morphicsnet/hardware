@@ -28,10 +28,12 @@ telemetry = ["dep:nc-telemetry", "nc-sim-neuron/telemetry", "nc-sim-coreneuron/t
 anyhow = { workspace = true }
 nc-hal = { path = "../hal" }
 nc-nir = { path = "../nir" }
+nc-passes = { path = "../passes" }
 pyo3 = { workspace = true, optional = true, features = ["extension-module", "abi3-py38"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+tempfile = "3"
 nc-backend-truenorth = { path = "../backend_truenorth", optional = true, package = "nc-backend-truenorth" }
 nc-backend-dynaps = { path = "../backend_dynaps", optional = true, package = "nc-backend-dynaps" }
 nc-backend-riscv = { path = "../backend_riscv", optional = true, package = "nc-backend-riscv" }
@@ -41,3 +43,6 @@ nc-sim-coreneuron = { path = "../sim_coreneuron", optional = true, package = "nc
 nc-sim-arbor = { path = "../sim_arbor", optional = true, package = "nc-sim-arbor" }
 # Optional telemetry crate for Python simulation profiling
 nc-telemetry = { path = "../telemetry", optional = true, package = "nc-telemetry" }
+
+[dev-dependencies]
+tempfile = "3"

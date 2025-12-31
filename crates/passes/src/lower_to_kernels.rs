@@ -37,8 +37,14 @@ impl Pass<nir::Graph> for LowerToKernels {
                 .insert("kernel_plan".to_string(), v);
         }
 
-        // Optional JSON dump if configured.
-        let _ = maybe_dump(&plan, ctx);
+        // Optional JSON dump if configured (guarded by central policy).
+        let cfg_map = crate::config_map_from_value(ctx.config.as_ref());
+        if crate::should_dump("lower", &cfg_map) {
+            let _ = maybe_dump(&plan, ctx);
+        }
+        if crate::metrics_enabled(&cfg_map) {
+            tracing::info!(kernels_count = plan.kernels.len(), pass = "lower_to_kernels", "lower metrics");
+        }
 
         Ok(PassOutcome::Changed)
     }

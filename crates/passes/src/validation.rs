@@ -47,10 +47,21 @@ impl Pass<nir::Graph> for Validation {
 
         sort_diags(&mut errors);
 
-        // Dump report if requested
+        // Dump report if requested (guarded by central policy)
         let ok = errors.is_empty();
         let report = ValidationReport { ok, errors: errors.clone() };
-        let _ = maybe_dump(&report, ctx);
+        let cfg_map = crate::config_map_from_value(ctx.config.as_ref());
+        if crate::should_dump("validation", &cfg_map) {
+            let _ = maybe_dump(&report, ctx);
+        }
+        if crate::metrics_enabled(&cfg_map) {
+            tracing::info!(
+                ok = report.ok,
+                errors_count = report.errors.len(),
+                pass = "validation",
+                "validation metrics"
+            );
+        }
 
         if ok {
             return Ok(PassOutcome::Unchanged);

@@ -1,0 +1,45 @@
+name = "speck"
+vendor = "SynSense"
+family = "Speck"
+version = "1.0"
+description = "SynSense Speck - Event-driven neuromorphic vision SoC"
+
+[capabilities]
+# Core capabilities
+weight_precisions = [8]
+max_neurons_per_core = 1024
+max_synapses_per_core = 65536
+time_resolution_ns = 1000
+
+# Speck-specific extensions
+[capabilities.additional]
+# Event processing capabilities
+event_rate_limit = 1000000  # events per second
+refractory_period_us = 100   # refractory period in microseconds
+
+# Power constraints
+power_budget_uw = 10000      # 10mW power budget
+
+# Vision processing features
+dvs_camera_support = true
+temporal_coding = true
+motion_detection = true
+supported_resolutions = ["QVGA", "VGA"]
+max_frame_rate = 1000        # Hz
+
+# Neural processing
+neuron_model = "event_driven_lif"
+synapse_model = "event_driven"
+learning_support = false     # No on-chip learning for Speck 1.0
+
+[toolchain]
+# Speck uses proprietary toolchain
+compiler = "speck_sdk"
+build_system = "speck_build"
+deployment = "speck_deploy"
+
+[metadata]
+research_paper = "https://arxiv.org/abs/2010.09252"
+documentation = "https://synsense.ai/products/speck/"
+purchase_info = "Contact SynSense for dev kit availability"
+community = "https://synsense.ai/"

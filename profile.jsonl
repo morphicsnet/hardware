@@ -1,0 +1,8 @@
+{"ts_ms":1767051537056,"metric":"graph.populations","value":0.0,"labels":{"graph":"cli-lower-demo","pass":"validate"}}
+{"ts_ms":1767051537056,"metric":"graph.connections","value":0.0,"labels":{"graph":"cli-lower-demo","pass":"validate"}}
+{"ts_ms":1767051537056,"metric":"graph.probes","value":0.0,"labels":{"graph":"cli-lower-demo","pass":"validate"}}
+{"ts_ms":1767051537056,"metric":"passes.pass_ms","value":0.922292,"labels":{"graph":"cli-lower-demo","pass":"validate"}}
+{"ts_ms":1767051537057,"metric":"graph.populations","value":0.0,"labels":{"graph":"cli-lower-demo","pass":"partition"}}
+{"ts_ms":1767051537057,"metric":"graph.connections","value":0.0,"labels":{"graph":"cli-lower-demo","pass":"partition"}}
+{"ts_ms":1767051537057,"metric":"graph.probes","value":0.0,"labels":{"graph":"cli-lower-demo","pass":"partition"}}
+{"ts_ms":1767051537057,"metric":"passes.pass_ms","value":0.384542,"labels":{"graph":"cli-lower-demo","pass":"partition"}}

@@ -1,0 +1,24 @@
+{
+  "core_mapping": {
+    "chips_used": 1,
+    "compartments_per_neuron": 1,
+    "core_assignments": [],
+    "cores_used": 0,
+    "neurons_per_core": 1,
+    "total_capacity": 128,
+    "total_neurons": 0
+  },
+  "graph": "g",
+  "learning_rules": {
+    "learning_configs": [],
+    "plastic_connections": 0
+  },
+  "platform": "Loihi2",
+  "synapse_programming": {
+    "programmed_synapses": [],
+    "total_synapses": 0,
+    "weight_bits": 8
+  },
+  "target": "loihi2",
+  "timestamp": "2025-12-30T10:46:11.333860+00:00"
+}

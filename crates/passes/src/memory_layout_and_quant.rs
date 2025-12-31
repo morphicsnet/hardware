@@ -61,8 +61,19 @@ impl Pass<nir::Graph> for MemoryLayoutAndQuant {
                 .insert("layout_and_quant_plan".to_string(), v);
         }
 
-        // 4) Optional dump (if configured)
-        let _ = maybe_dump(&plan, ctx);
+        // 4) Optional dump (if configured) with central toggle policy
+        let cfg_map = crate::config_map_from_value(ctx.config.as_ref());
+        if crate::should_dump("layout", &cfg_map) {
+            let _ = maybe_dump(&plan, ctx);
+        }
+        if crate::metrics_enabled(&cfg_map) {
+            tracing::info!(
+                buffers_count = plan.buffers.len(),
+                quant_entries = plan.quant.len(),
+                pass = "memory_layout_and_quant",
+                "layout metrics"
+            );
+        }
 
         Ok(PassOutcome::Changed)
     }

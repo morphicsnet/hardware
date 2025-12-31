@@ -1,0 +1,41 @@
+name = "xylo"
+vendor = "SynSense"
+family = "Xylo"
+version = "1.0"
+description = "SynSense Xylo - Ultra-low-power neuromorphic audio processor"
+
+[capabilities]
+# Core capabilities
+weight_precisions = [8]
+max_neurons_per_core = 1024
+max_synapses_per_core = 8192
+time_resolution_ns = 1000
+
+# Xylo-specific extensions
+[capabilities.additional]
+# Audio processing capabilities
+audio_sample_rate = 16000  # Hz
+mel_bins = 64             # Mel-frequency bins for audio features
+microphone_support = true  # Built-in microphone interface
+always_on_audio = true     # Continuous audio processing
+
+# Power constraints
+power_budget_uw = 5000     # 5mW power budget
+
+# Audio processing features
+keyword_spotting = true
+wake_word_detection = true
+noise_suppression = true
+max_keywords = 10
+
+[toolchain]
+# Xylo uses proprietary toolchain
+compiler = "xylo_sdk"
+build_system = "xylo_build"
+deployment = "xylo_deploy"
+
+[metadata]
+research_paper = "https://arxiv.org/abs/2110.07567"
+documentation = "https://synsense.ai/products/xylo/"
+purchase_info = "Contact SynSense for dev kit availability"
+community = "https://synsense.ai/"

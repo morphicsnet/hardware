@@ -30,6 +30,9 @@ pub fn builtin_targets() -> &'static [&'static str] {
         "riscv64gcv_linux",
         "riscv32imac_bare",
         "riscv64gc_ctrl",
+        "speck",
+        "xylo",
+        "brainscales2",
     ]
 }
 

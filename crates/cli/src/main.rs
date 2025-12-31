@@ -131,7 +131,7 @@ struct ExportMlirArgs {
     input: PathBuf,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let _ = tracing_subscriber::fmt().with_env_filter("info").try_init();
 
@@ -165,13 +165,8 @@ fn main() {
                 .map(|s| s.to_lowercase())
                 .or_else(|| args.input.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()));
 
-            let data = match fs::read_to_string(&args.input) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("import: cannot read {:?}: {e}", args.input);
-                    return;
-                }
-            };
+            let data = fs::read_to_string(&args.input)
+                .map_err(|e| anyhow::anyhow!("import: cannot read {:?}: {e}", args.input))?;
 
             let parsed = match fmt.as_deref() {
                 Some("yaml") | Some("yml") => nc_nir::Graph::from_yaml_str(&data).map_err(|e| e.to_string()),
@@ -238,8 +233,8 @@ fn main() {
                 match nc_hal::parse_target_manifest_path(&mp) {
                     Ok(m) => {
                         if let Err(e) = nc_hal::validate_manifest(&m) {
-                            eprintln!("lower: manifest invalid: {e}");
-                        } else {
+                eprintln!("lower: manifest invalid: {e}");
+            } else {
                             g.attributes.insert(
                                 "hal_manifest_path".to_string(),
                                 serde_json::json!(mp.to_string_lossy().to_string()),
@@ -252,9 +247,8 @@ fn main() {
                 }
             }
             let mut pm = nc_passes::PassManager::new();
-            if let Err(e) = nc_passes::build_pipeline(&mut pm, &cfg.passes) {
-                eprintln!("error: {e}");
-            }
+            nc_passes::build_pipeline(&mut pm, &cfg.passes)
+                .map_err(|e| anyhow::anyhow!("error: {e}"))?;
             match pm.run_with_config(g, &cfg) {
                 Ok(_) => {
                     if let Some(dir) = cfg.dump_dir {
@@ -269,48 +263,23 @@ fn main() {
         Some(Command::Compile(args)) => {
             // Determine input format by extension and parse NIR
             let fmt = args.input.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase());
-            let data = match fs::read_to_string(&args.input) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("compile: cannot read {:?}: {e}", args.input);
-                    return;
-                }
-            };
+            let data = fs::read_to_string(&args.input)
+                .map_err(|e| anyhow::anyhow!("compile: cannot read {:?}: {e}", args.input))?;
             let mut g = match fmt.as_deref() {
-                Some("yaml") | Some("yml") => match nc_nir::Graph::from_yaml_str(&data) {
-                    Ok(g) => g,
-                    Err(e) => {
-                        eprintln!("compile: parse yaml failed: {e}");
-                        return;
-                    }
-                },
-                _ => match nc_nir::Graph::from_json_str(&data) {
-                    Ok(g) => g,
-                    Err(e) => {
-                        eprintln!("compile: parse json failed: {e}");
-                        return;
-                    }
-                },
+                Some("yaml") | Some("yml") => nc_nir::Graph::from_yaml_str(&data)
+                    .map_err(|e| anyhow::anyhow!("compile: parse yaml failed: {e}"))?,
+                _ => nc_nir::Graph::from_json_str(&data)
+                    .map_err(|e| anyhow::anyhow!("compile: parse json failed: {e}"))?,
             };
-            if let Err(e) = g.validate() {
-                eprintln!("compile: validation failed: {e}");
-                return;
-            }
+            g.validate().map_err(|e| anyhow::anyhow!("compile: validation failed: {e}"))?;
             g.ensure_version_tag();
 
             // Load target manifest
             let manifest_path = PathBuf::from(format!("targets/{}.toml", args.target));
-            let manifest = match nc_hal::parse_target_manifest_path(&manifest_path) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("compile: cannot load manifest {manifest_path:?}: {e}");
-                    return;
-                }
-            };
-            if let Err(e) = nc_hal::validate_manifest(&manifest) {
-                eprintln!("compile: manifest invalid: {e}");
-                return;
-            }
+            let manifest = nc_hal::parse_target_manifest_path(&manifest_path)
+                .map_err(|e| anyhow::anyhow!("compile: cannot load manifest {manifest_path:?}: {e}"))?;
+            nc_hal::validate_manifest(&manifest)
+                .map_err(|e| anyhow::anyhow!("compile: manifest invalid: {e}"))?;
 
             match args.target.as_str() {
                 "loihi2" => {
@@ -456,6 +425,45 @@ fn main() {
                         eprintln!("backend 'backend-riscv' is not enabled; rebuild CLI with --features backend-riscv");
                     }
                 }
+                "speck" => {
+                    #[cfg(feature = "backend-speck")]
+                    {
+                        match nc_backend_speck::compile(&g, &manifest) {
+                            Ok(art) => println!("compile ok: {}", art),
+                            Err(e) => eprintln!("compile error: {e}"),
+                        }
+                    }
+                    #[cfg(not(feature = "backend-speck"))]
+                    {
+                        eprintln!("backend 'backend-speck' is not enabled; rebuild CLI with --features backend-speck");
+                    }
+                }
+                "xylo" => {
+                    #[cfg(feature = "backend-xylo")]
+                    {
+                        match nc_backend_xylo::compile(&g, &manifest) {
+                            Ok(art) => println!("compile ok: {}", art),
+                            Err(e) => eprintln!("compile error: {e}"),
+                        }
+                    }
+                    #[cfg(not(feature = "backend-xylo"))]
+                    {
+                        eprintln!("backend 'backend-xylo' is not enabled; rebuild CLI with --features backend-xylo");
+                    }
+                }
+                "brainscales2" => {
+                    #[cfg(feature = "backend-brainscales")]
+                    {
+                        match nc_backend_brainscales::compile(&g, &manifest) {
+                            Ok(art) => println!("compile ok: {}", art),
+                            Err(e) => eprintln!("compile error: {e}"),
+                        }
+                    }
+                    #[cfg(not(feature = "backend-brainscales"))]
+                    {
+                        eprintln!("backend 'backend-brainscales' is not enabled; rebuild CLI with --features backend-brainscales");
+                    }
+                }
                 other => {
                     eprintln!("compile: unsupported or not yet integrated target '{other}'");
                 }
@@ -464,24 +472,15 @@ fn main() {
         Some(Command::Simulate(args)) => {
             // Parse input NIR
             let fmt = args.input.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase());
-            let data = match fs::read_to_string(&args.input) {
-                Ok(d) => d,
-                Err(e) => { eprintln!("simulate: cannot read {:?}: {e}", args.input); return; }
-            };
+            let data = fs::read_to_string(&args.input)
+                .map_err(|e| anyhow::anyhow!("simulate: cannot read {:?}: {e}", args.input))?;
             let mut g = match fmt.as_deref() {
-                Some("yaml") | Some("yml") => match nc_nir::Graph::from_yaml_str(&data) {
-                    Ok(g) => g,
-                    Err(e) => { eprintln!("simulate: parse yaml failed: {e}"); return; }
-                },
-                _ => match nc_nir::Graph::from_json_str(&data) {
-                    Ok(g) => g,
-                    Err(e) => { eprintln!("simulate: parse json failed: {e}"); return; }
-                },
+                Some("yaml") | Some("yml") => nc_nir::Graph::from_yaml_str(&data)
+                    .map_err(|e| anyhow::anyhow!("simulate: parse yaml failed: {e}"))?,
+                _ => nc_nir::Graph::from_json_str(&data)
+                    .map_err(|e| anyhow::anyhow!("simulate: parse json failed: {e}"))?,
             };
-            if let Err(e) = g.validate() {
-                eprintln!("simulate: validation failed: {e}");
-                return;
-            }
+            g.validate().map_err(|e| anyhow::anyhow!("simulate: validation failed: {e}"))?;
             g.ensure_version_tag();
 
             #[cfg(feature = "telemetry")]
@@ -524,7 +523,28 @@ fn main() {
                     #[cfg(feature = "sim-coreneuron")]
                     {
                         match nc_sim_coreneuron::emit_artifacts(&g, &out_dir) {
-                            Ok(_) => println!("simulate artifacts written to {:?}", out_dir),
+                            Ok(_) => {
+                                println!("simulate artifacts written to {:?}", out_dir);
+                                // Try to run the simulation if CoreNEURON is available
+                                match nc_sim_coreneuron::run_simulation(&out_dir) {
+                                    Ok(results) => {
+                                        println!("Simulation completed successfully!");
+                                        if let Some(execution_time) = results.get("execution_time_s").and_then(|v| v.as_f64()) {
+                                            println!("Execution time: {:.2} seconds", execution_time);
+                                        }
+                                        if let Some(populations) = results.get("populations").and_then(|v| v.as_u64()) {
+                                            println!("Populations simulated: {}", populations);
+                                        }
+                                        if let Some(connections) = results.get("connections").and_then(|v| v.as_u64()) {
+                                            println!("Connections processed: {}", connections);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("Simulation could not be run (CoreNEURON may not be installed): {}", e);
+                                        println!("Artifacts are ready for manual execution with: python run_simulation.py");
+                                    }
+                                }
+                            }
                             Err(e) => eprintln!("simulate error: {e}")
                         }
                     }
@@ -537,7 +557,28 @@ fn main() {
                     #[cfg(feature = "sim-arbor")]
                     {
                         match nc_sim_arbor::emit_artifacts(&g, &out_dir) {
-                            Ok(_) => println!("simulate artifacts written to {:?}", out_dir),
+                            Ok(_) => {
+                                println!("simulate artifacts written to {:?}", out_dir);
+                                // Try to run the simulation if Arbor is available
+                                match nc_sim_arbor::run_simulation(&out_dir) {
+                                    Ok(results) => {
+                                        println!("Simulation completed successfully!");
+                                        if let Some(execution_time) = results.get("execution_time_s").and_then(|v| v.as_f64()) {
+                                            println!("Execution time: {:.2} seconds", execution_time);
+                                        }
+                                        if let Some(cells) = results.get("cells").and_then(|v| v.as_u64()) {
+                                            println!("Cells simulated: {}", cells);
+                                        }
+                                        if let Some(connections) = results.get("connections").and_then(|v| v.as_u64()) {
+                                            println!("Connections processed: {}", connections);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("Simulation could not be run (Arbor may not be installed): {}", e);
+                                        println!("Artifacts are ready for manual execution with: python run_simulation.py");
+                                    }
+                                }
+                            }
                             Err(e) => eprintln!("simulate error: {e}")
                         }
                     }
@@ -608,18 +649,15 @@ fn main() {
                 .output
                 .clone()
                 .unwrap_or_else(|| PathBuf::from(format!("target/package-{stamp}")));
-            if let Err(e) = fs::create_dir_all(&out_dir) {
-                eprintln!("package: cannot create {:?}: {e}", out_dir);
-                return;
-            }
+            fs::create_dir_all(&out_dir)
+                .map_err(|e| anyhow::anyhow!("package: cannot create {:?}: {e}", out_dir))?;
             let pkg_file = out_dir.join("PKG.txt");
             let contents = format!(
                 "neuro-compiler package\ncreated_at_unix={stamp}\ncli_version=0.0.1\n"
             );
-            match fs::write(&pkg_file, contents) {
-                Ok(_) => println!("package created at {:?}", out_dir),
-                Err(e) => eprintln!("package: failed to write {:?}: {e}", pkg_file),
-            }
+            fs::write(&pkg_file, contents)
+                .map_err(|e| anyhow::anyhow!("package: failed to write {:?}: {e}", pkg_file))?;
+            println!("package created at {:?}", out_dir);
         }
         Some(Command::Deploy(args)) => {
             let spec = nc_runtime::DeploySpec { target: args.target.clone() };
@@ -632,13 +670,8 @@ fn main() {
             #[cfg(feature = "mlir")]
             {
                 let fmt = args.input.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase());
-                let data = match fs::read_to_string(&args.input) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!("mlir: cannot read {:?}: {e}", args.input);
-                        return;
-                    }
-                };
+                let data = fs::read_to_string(&args.input)
+                    .map_err(|e| anyhow::anyhow!("mlir: cannot read {:?}: {e}", args.input))?;
                 let mut g = match fmt.as_deref() {
                     Some("yaml") | Some("yml") => match nc_nir::Graph::from_yaml_str(&data) {
                         Ok(g) => g,
@@ -674,4 +707,6 @@ fn main() {
             println!("Use --help for commands. Example: neuro-compiler list-targets");
         }
     }
+
+    Ok(())
 }

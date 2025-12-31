@@ -1,0 +1,21 @@
+{
+  "name": "pipeline_simple",
+  "dialect": "Dataflow",
+  "populations": [
+    { "name": "x", "size": 1, "model": "Input", "params": {} },
+    { "name": "Add", "size": 1, "model": "Add", "params": {} },
+    { "name": "y", "size": 1, "model": "Tensor", "params": {} },
+    { "name": "ReLU", "size": 1, "model": "ReLU", "params": {} },
+    { "name": "z", "size": 1, "model": "Tensor", "params": {} }
+  ],
+  "connections": [
+    { "pre": "x", "post": "Add", "weight": 1.0, "delay_ms": 0.0, "plasticity": null },
+    { "pre": "Add", "post": "y", "weight": 1.0, "delay_ms": 0.0, "plasticity": null },
+    { "pre": "y", "post": "ReLU", "weight": 1.0, "delay_ms": 0.0, "plasticity": null },
+    { "pre": "ReLU", "post": "z", "weight": 1.0, "delay_ms": 0.0, "plasticity": null }
+  ],
+  "probes": [],
+  "attributes": {
+    "nir_version": "0.0.1"
+  }
+}

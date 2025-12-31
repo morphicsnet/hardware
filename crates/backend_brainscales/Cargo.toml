@@ -1,0 +1,22 @@
+[package]
+name = "nc-backend-brainscales"
+version = "0.1.0"
+edition = "2021"
+description = "BrainScaleS-2 backend for neuro-compiler"
+license = "UNLICENSED"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+
+# Local crates
+nc-hal = { path = "../hal" }
+nc-nir = { path = "../nir" }
+nc-passes = { path = "../passes" }
+nc-telemetry = { path = "../telemetry", optional = true }
+
+[features]
+backend-brainscales = []
+telemetry = []

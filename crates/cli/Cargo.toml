@@ -28,6 +28,9 @@ backends-all = [
   "backend-memxbar",
   "backend-custom-asic",
   "backend-riscv",
+  "backend-speck",
+  "backend-xylo",
+  "backend-brainscales",
 ]
 sims-all = [
   "sim-neuron",
@@ -60,6 +63,9 @@ backend-dynaps = ["dep:nc-backend-dynaps"]
 backend-memxbar = ["dep:nc-backend-memxbar"]
 backend-custom-asic = ["dep:nc-backend-custom-asic"]
 backend-riscv = ["dep:nc-backend-riscv"]
+backend-speck = ["dep:nc-backend-speck"]
+backend-xylo = ["dep:nc-backend-xylo"]
+backend-brainscales = ["dep:nc-backend-brainscales"]
 backend-cpu-ref-sim = ["nc-hal/backend-cpu-ref-sim"]
 
 
@@ -99,6 +105,9 @@ nc-backend-dynaps = { path = "../backend_dynaps", optional = true, package = "nc
 nc-backend-memxbar = { path = "../backend_memxbar", optional = true, package = "nc-backend-memxbar" }
 nc-backend-custom-asic = { path = "../backend_custom_asic", optional = true, package = "nc-backend-custom-asic" }
 nc-backend-riscv = { path = "../backend_riscv", optional = true, package = "nc-backend-riscv" }
+nc-backend-speck = { path = "../backend_speck", optional = true, package = "nc-backend-speck" }
+nc-backend-xylo = { path = "../backend_xylo", optional = true, package = "nc-backend-xylo" }
+nc-backend-brainscales = { path = "../backend_brainscales", optional = true, package = "nc-backend-brainscales" }
 
 nc-sim-neuron = { path = "../sim_neuron", optional = true, package = "nc-sim-neuron" }
 nc-sim-coreneuron = { path = "../sim_coreneuron", optional = true, package = "nc-sim-coreneuron" }
@@ -111,6 +120,7 @@ nc-mlir-bridge = { path = "../mlir-bridge", optional = true, package = "nc-mlir-
 assert_cmd = "2"
 predicates = "3"
 serde_json = { workspace = true }
+tempfile = "3"
 
 [[bin]]
 name = "neuro-compiler"

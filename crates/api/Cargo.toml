@@ -1,0 +1,65 @@
+[package]
+name = "nc-api"
+version = "0.1.0"
+edition = "2021"
+description = "REST API layer for neuro-compiler web application"
+license = "UNLICENSED"
+
+[[bin]]
+name = "neuro-compiler-api"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+axum = "0.7"
+tokio = { version = "1.0", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = "1.0"
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# CLI parsing
+clap = { version = "4.0", features = ["derive"] }
+
+# Local crates
+nc-hal = { path = "../hal" }
+nc-nir = { path = "../nir" }
+nc-passes = { path = "../passes" }
+nc-cli = { path = "../cli", package = "neuro-compiler-cli" }
+
+# Optional features for backends/simulators
+nc-frontend-pynn = { path = "../frontend_pynn", optional = true, package = "nc-frontend-pynn" }
+nc-backend-riscv = { path = "../backend_riscv", optional = true, package = "nc-backend-riscv" }
+nc-backend-speck = { path = "../backend_speck", optional = true, package = "nc-backend-speck" }
+nc-backend-xylo = { path = "../backend_xylo", optional = true, package = "nc-backend-xylo" }
+nc-backend-brainscales = { path = "../backend_brainscales", optional = true, package = "nc-backend-brainscales" }
+nc-sim-neuron = { path = "../sim_neuron", optional = true, package = "nc-sim-neuron" }
+
+[features]
+default = []
+full = [
+    "frontend-pynn",
+    "backend-riscv",
+    "backend-speck",
+    "backend-xylo",
+    "backend-brainscales",
+    "sim-neuron",
+]
+
+# Individual features
+frontend-pynn = ["dep:nc-frontend-pynn"]
+backend-riscv = ["dep:nc-backend-riscv"]
+backend-speck = ["dep:nc-backend-speck"]
+backend-xylo = ["dep:nc-backend-xylo"]
+backend-brainscales = ["dep:nc-backend-brainscales"]
+sim-neuron = ["dep:nc-sim-neuron"]

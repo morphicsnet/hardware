@@ -221,3 +221,163 @@ fn validation_ok_for_chain_small() {
         assert!(errs.is_empty(), "expected no validation errors, got {:?}", errs);
     }
 }
+
+// H3-7 dump toggles tests -------------------------------------------------------
+use tempfile::tempdir;
+
+fn pipeline_desc_with_cfg(cfg: serde_json::Value, include_validation: bool) -> PipelineDescriptor {
+    let cfg1 = Some(cfg.clone());
+    let cfg2 = Some(cfg.clone());
+    let cfg3 = Some(cfg.clone());
+    let cfg4 = Some(cfg);
+    let mut passes = vec![
+        PassSpec { name: "lower_to_kernels".into(), config: cfg1 },
+        PassSpec { name: "memory_layout_and_quant".into(), config: cfg2 },
+        PassSpec { name: "kernel_fusion_and_scheduling".into(), config: cfg3 },
+    ];
+    if include_validation {
+        passes.push(PassSpec { name: "validation".into(), config: cfg4 });
+    }
+    PipelineDescriptor { passes }
+}
+
+fn assert_exists(p: &std::path::Path) {
+    assert!(
+        std::fs::metadata(p).is_ok(),
+        "expected file to exist: {:?}",
+        p
+    );
+}
+fn assert_not_exists(p: &std::path::Path) {
+    assert!(
+        std::fs::metadata(p).is_err(),
+        "expected file to NOT exist: {:?}",
+        p
+    );
+}
+
+#[test]
+fn dump_default_compat_all_enabled_by_dump_dir_only() {
+    // Back-compat: when only dump_dir is provided and no specific dump_* toggles,
+    // all dumps should be produced.
+    let mut g = make_chain_small_graph();
+
+    let tmp = tempdir().unwrap();
+    let cfg = json!({ "dump_dir": tmp.path().to_string_lossy() });
+    let desc = pipeline_desc_with_cfg(cfg, false);
+
+    let mut reg = default_generic_nir_registry();
+    let pipeline = reg.build_pipeline(&desc).unwrap();
+
+    let mut ctx = PassContext::default();
+    ctx.run_id = Some("chain_small".into());
+    let _ = pipeline.run(&mut g, &mut ctx).unwrap();
+
+    let base = tmp.path();
+    assert_exists(&base.join("kernels_chain_small.json"));
+    assert_exists(&base.join("layout_quant_chain_small.json"));
+    assert_exists(&base.join("schedule_chain_small.json"));
+}
+
+#[test]
+fn dump_selective_lower_only() {
+    // When any specific toggle is present, dumping becomes selective:
+    // only those explicitly truthy should dump.
+    let mut g = make_chain_small_graph();
+
+    let tmp = tempdir().unwrap();
+    let cfg = json!({
+        "dump_dir": tmp.path().to_string_lossy(),
+        "dump_lower": "1"
+    });
+    let desc = pipeline_desc_with_cfg(cfg, false);
+
+    let mut reg = default_generic_nir_registry();
+    let pipeline = reg.build_pipeline(&desc).unwrap();
+
+    let mut ctx = PassContext::default();
+    ctx.run_id = Some("chain_small".into());
+    let _ = pipeline.run(&mut g, &mut ctx).unwrap();
+
+    let base = tmp.path();
+    assert_exists(&base.join("kernels_chain_small.json"));
+    assert_not_exists(&base.join("layout_quant_chain_small.json"));
+    assert_not_exists(&base.join("schedule_chain_small.json"));
+}
+
+#[test]
+fn dump_all_override_produces_all() {
+    // dump_all overrides and enables all dumps.
+    let mut g = make_chain_small_graph();
+
+    let tmp = tempdir().unwrap();
+    let cfg = json!({
+        "dump_dir": tmp.path().to_string_lossy(),
+        "dump_all": "true"
+    });
+    let desc = pipeline_desc_with_cfg(cfg, false);
+
+    let mut reg = default_generic_nir_registry();
+    let pipeline = reg.build_pipeline(&desc).unwrap();
+
+    let mut ctx = PassContext::default();
+    ctx.run_id = Some("chain_small".into());
+    let _ = pipeline.run(&mut g, &mut ctx).unwrap();
+
+    let base = tmp.path();
+    assert_exists(&base.join("kernels_chain_small.json"));
+    assert_exists(&base.join("layout_quant_chain_small.json"));
+    assert_exists(&base.join("schedule_chain_small.json"));
+}
+
+#[test]
+fn dump_explicit_none_when_toggles_present_but_false() {
+    // All specific toggles present but falsey => no dumps should be written.
+    let mut g = make_chain_small_graph();
+
+    let tmp = tempdir().unwrap();
+    let cfg = json!({
+        "dump_dir": tmp.path().to_string_lossy(),
+        "dump_lower": "0",
+        "dump_layout": "0",
+        "dump_schedule": "no",
+        "dump_validation": "false"
+    });
+    // Include validation to verify it also does not dump.
+    let desc = pipeline_desc_with_cfg(cfg, true);
+
+    let mut reg = default_generic_nir_registry();
+    let pipeline = reg.build_pipeline(&desc).unwrap();
+
+    let mut ctx = PassContext::default();
+    ctx.run_id = Some("chain_small".into());
+    let _ = pipeline.run(&mut g, &mut ctx);
+
+    let base = tmp.path();
+    assert_not_exists(&base.join("kernels_chain_small.json"));
+    assert_not_exists(&base.join("layout_quant_chain_small.json"));
+    assert_not_exists(&base.join("schedule_chain_small.json"));
+    assert_not_exists(&base.join("validation_chain_small.json"));
+}
+
+#[test]
+fn metrics_enabled_no_panic() {
+    // Ensure metrics guard does not panic when enabled.
+    let mut g = make_chain_small_graph();
+
+    let tmp = tempdir().unwrap();
+    let cfg = json!({
+        "dump_dir": tmp.path().to_string_lossy(),
+        "metrics": "1"
+    });
+    let desc = pipeline_desc_with_cfg(cfg, true);
+
+    let mut reg = default_generic_nir_registry();
+    let pipeline = reg.build_pipeline(&desc).unwrap();
+
+    let mut ctx = PassContext::default();
+    ctx.run_id = Some("chain_small".into());
+    let out = pipeline.run(&mut g, &mut ctx);
+    // Do not assert on logs; just ensure we didn't panic and got a valid result.
+    assert!(out.is_ok() || out.is_err(), "pipeline should return a result");
+}

@@ -51,8 +51,18 @@ impl Pass<nir::Graph> for KernelFusionAndScheduling {
             module.attributes.insert("schedule_plan".to_string(), v);
         }
 
-        // Optional dump
-        let _ = maybe_dump(&plan, ctx);
+        // Optional dump (guarded by central policy)
+        let cfg_map = crate::config_map_from_value(ctx.config.as_ref());
+        if crate::should_dump("schedule", &cfg_map) {
+            let _ = maybe_dump(&plan, ctx);
+        }
+        if crate::metrics_enabled(&cfg_map) {
+            tracing::info!(
+                fusion_groups_count = plan.groups.len(),
+                pass = "kernel_fusion_and_scheduling",
+                "schedule metrics"
+            );
+        }
 
         Ok(PassOutcome::Changed)
     }

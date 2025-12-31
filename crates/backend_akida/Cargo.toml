@@ -14,6 +14,9 @@ telemetry = ["dep:nc-telemetry"]
 
 [dependencies]
 anyhow = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
 nc-nir = { path = "../nir", package = "nc-nir" }
 nc-hal = { path = "../hal", package = "nc-hal" }
+nc-passes = { path = "../passes", package = "nc-passes" }
 nc-telemetry = { path = "../telemetry", optional = true, package = "nc-telemetry" }

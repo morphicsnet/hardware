@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 #[cfg(feature = "telemetry")]
 use nc_telemetry as telemetry;
 use nc_orchestrator as orchestrator;
+use serde_json::json;
 
 pub mod lower_to_kernels;
 pub mod memory_layout_and_quant;
@@ -597,6 +598,279 @@ impl Pass for RvControlPlaneDriverGenPass {
     }
 }
 
+/// TrueNorth core mapping pass - assigns neurons to cores and axons
+pub struct TnCoreMappingPass;
+impl Pass for TnCoreMappingPass {
+    fn name(&self) -> &str { "tn-core-mapping" }
+    fn run(&self, mut g: nir::Graph) -> Result<nir::Graph> {
+        // Extract TrueNorth capabilities
+        let caps = g.attributes.get("caps_truenorth");
+        let neurons_per_core = caps.and_then(|v| v.get("neurons_per_core")).and_then(|x| x.as_u64()).unwrap_or(256);
+        let axons_per_core = caps.and_then(|v| v.get("axons_per_core")).and_then(|x| x.as_u64()).unwrap_or(256);
+
+        // Simple core assignment (first-fit)
+        let total_neurons: usize = g.populations.iter().map(|p| p.size as usize).sum();
+        let cores_needed = ((total_neurons as f64) / (neurons_per_core as f64)).ceil() as usize;
+
+        let mut core_assignments = Vec::new();
+        for (i, pop) in g.populations.iter().enumerate() {
+            let core_id = i % cores_needed;
+            core_assignments.push(serde_json::json!({
+                "population": pop.name,
+                "core_id": core_id,
+                "axon_start": core_id * axons_per_core as usize,
+                "neuron_start": (i * pop.size as usize) % neurons_per_core as usize
+            }));
+        }
+
+        let meta = serde_json::json!({
+            "cores_used": cores_needed,
+            "neurons_per_core": neurons_per_core,
+            "axons_per_core": axons_per_core,
+            "core_assignments": core_assignments
+        });
+        g.attributes.insert("tn_core_mapping".to_string(), meta);
+        Ok(g)
+    }
+}
+
+/// TrueNorth weight programming pass - converts weights to core format
+pub struct TnWeightProgrammingPass;
+impl Pass for TnWeightProgrammingPass {
+    fn name(&self) -> &str { "tn-weight-programming" }
+    fn run(&self, mut g: nir::Graph) -> Result<nir::Graph> {
+        let bits = g.attributes.get("caps_truenorth")
+            .and_then(|v| v.get("weight_bits"))
+            .and_then(|x| x.as_u64())
+            .unwrap_or(4) as u32;
+
+        let mut programmed_weights = Vec::new();
+        for conn in &g.connections {
+            // Simple quantization for TrueNorth (4-bit)
+            let weight_q = QuantizeWeightsPass::quantize(conn.weight, bits);
+            let levels = if bits >= 31 { u32::MAX } else { 1u32 << bits };
+            let l_minus_1 = (levels.saturating_sub(1)) as f32;
+            let index = ((weight_q + 1.0) * l_minus_1 / 2.0).round() as u8;
+            let axon_idx = (index / 16) as u8;  // 16 weights per axon
+            let weight_val = (index % 16) as u8;
+
+            programmed_weights.push(serde_json::json!({
+                "pre_population": conn.pre,
+                "post_population": conn.post,
+                "axon_index": axon_idx,
+                "weight_value": weight_val,
+                "original_weight": conn.weight,
+                "quantized_weight": weight_q
+            }));
+        }
+
+        let meta = serde_json::json!({
+            "weight_bits": bits,
+            "programmed_weights": programmed_weights
+        });
+        g.attributes.insert("tn_weight_programming".to_string(), meta);
+        Ok(g)
+    }
+}
+
+/// TrueNorth crossbar configuration pass
+pub struct TnCrossbarConfigPass;
+impl Pass for TnCrossbarConfigPass {
+    fn name(&self) -> &str { "tn-crossbar-config" }
+    fn run(&self, mut g: nir::Graph) -> Result<nir::Graph> {
+        // Configure crossbar routing based on core assignments
+        let core_assignments = g.attributes.get("tn_core_mapping")
+            .and_then(|v| v.get("core_assignments"))
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut crossbar_config = Vec::new();
+        for assignment in core_assignments {
+            if let (Some(pop_name), Some(core_id)) = (
+                assignment.get("population").and_then(|v| v.as_str()),
+                assignment.get("core_id").and_then(|v| v.as_u64())
+            ) {
+                crossbar_config.push(serde_json::json!({
+                    "population": pop_name,
+                    "core_id": core_id,
+                    "crossbar_enabled": true,
+                    "routing_mode": "direct"
+                }));
+            }
+        }
+
+        let meta = serde_json::json!({
+            "crossbar_config": crossbar_config,
+            "routing_algorithm": "direct_mapping"
+        });
+        g.attributes.insert("tn_crossbar_config".to_string(), meta);
+        Ok(g)
+    }
+}
+
+/// SpiNNaker core allocation pass - assigns neurons to SpiNNaker chips and cores
+pub struct SnCoreAllocationPass;
+impl Pass for SnCoreAllocationPass {
+    fn name(&self) -> &str { "sn-core-allocation" }
+    fn run(&self, mut g: nir::Graph) -> Result<nir::Graph> {
+        // Extract SpiNNaker capabilities
+        let caps = g.attributes.get("caps_spinnaker");
+        let neurons_per_core = caps.and_then(|v| v.get("neurons_per_core")).and_then(|x| x.as_u64()).unwrap_or(1000);
+        let cores_per_chip = caps.and_then(|v| v.get("cores_per_chip")).and_then(|x| x.as_u64()).unwrap_or(18);
+        let chips_available = caps.and_then(|v| v.get("chips_available")).and_then(|x| x.as_u64()).unwrap_or(48);
+
+        // Calculate total capacity
+        let total_cores = chips_available * cores_per_chip;
+        let total_neurons_capacity = total_cores * neurons_per_core;
+
+        let total_neurons: usize = g.populations.iter().map(|p| p.size as usize).sum();
+
+        // Simple allocation strategy: distribute populations across cores
+        let mut core_allocations = Vec::new();
+        let mut current_core = 0usize;
+        let mut current_chip = 0usize;
+
+        for pop in &g.populations {
+            let cores_needed = ((pop.size as f64) / (neurons_per_core as f64)).ceil() as usize;
+            let allocated_cores = (0..cores_needed).map(|i| {
+                let chip_id = current_chip;
+                let core_id = current_core + i;
+                if core_id >= cores_per_chip as usize {
+                    // Move to next chip
+                    current_chip += 1;
+                    current_core = 0;
+                }
+                json!({
+                    "chip_id": chip_id,
+                    "core_id": core_id,
+                    "population": pop.name,
+                    "allocated_neurons": pop.size
+                })
+            }).collect::<Vec<_>>();
+
+            core_allocations.extend(allocated_cores);
+            current_core += cores_needed;
+        }
+
+        let meta = serde_json::json!({
+            "total_neurons": total_neurons,
+            "total_capacity": total_neurons_capacity,
+            "cores_allocated": core_allocations.len(),
+            "chips_used": current_chip + 1,
+            "core_allocations": core_allocations
+        });
+        g.attributes.insert("sn_core_allocation".to_string(), meta);
+        Ok(g)
+    }
+}
+
+/// SpiNNaker AER routing pass - generates Address-Event Representation routing tables
+pub struct SnAerRoutingPass;
+impl Pass for SnAerRoutingPass {
+    fn name(&self) -> &str { "sn-aer-routing" }
+    fn run(&self, mut g: nir::Graph) -> Result<nir::Graph> {
+        // Generate AER routing tables based on core allocations
+        let core_allocations = g.attributes.get("sn_core_allocation")
+            .and_then(|v| v.get("core_allocations"))
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut routing_tables = Vec::new();
+        let mut aer_keys = std::collections::HashMap::new();
+
+        // Assign AER keys to each population (neuron ID ranges)
+        let mut current_key = 0u64;
+        for alloc in &core_allocations {
+            if let (Some(chip_id), Some(core_id), Some(pop_name), Some(neuron_count)) = (
+                alloc.get("chip_id").and_then(|v| v.as_u64()),
+                alloc.get("core_id").and_then(|v| v.as_u64()),
+                alloc.get("population").and_then(|v| v.as_str()),
+                alloc.get("allocated_neurons").and_then(|v| v.as_u64())
+            ) {
+                let key_range = (current_key..current_key + neuron_count).collect::<Vec<_>>();
+                aer_keys.insert(pop_name.to_string(), key_range.clone());
+
+                routing_tables.push(serde_json::json!({
+                    "chip_id": chip_id,
+                    "core_id": core_id,
+                    "population": pop_name,
+                    "aer_key_range": format!("{:#010x}..{:#010x}", current_key, current_key + neuron_count),
+                    "neuron_count": neuron_count
+                }));
+
+                current_key += neuron_count;
+            }
+        }
+
+        // Generate inter-chip routing for connections
+        let mut inter_chip_routes = Vec::new();
+        for conn in &g.connections {
+            let pre_keys = aer_keys.get(&conn.pre);
+            let post_keys = aer_keys.get(&conn.post);
+
+            if let (Some(pre_range), Some(post_range)) = (pre_keys, post_keys) {
+                // Simplified routing: direct AER packet forwarding
+                inter_chip_routes.push(serde_json::json!({
+                    "source_population": conn.pre,
+                    "target_population": conn.post,
+                    "source_keys": pre_range,
+                    "target_keys": post_range,
+                    "route_type": "direct_aer"
+                }));
+            }
+        }
+
+        let meta = serde_json::json!({
+            "routing_tables": routing_tables,
+            "inter_chip_routes": inter_chip_routes,
+            "aer_key_space": format!("{:#010x}", current_key)
+        });
+        g.attributes.insert("sn_aer_routing".to_string(), meta);
+        Ok(g)
+    }
+}
+
+/// SpiNNaker synapse programming pass
+pub struct SnSynapseProgrammingPass;
+impl Pass for SnSynapseProgrammingPass {
+    fn name(&self) -> &str { "sn-synapse-programming" }
+    fn run(&self, mut g: nir::Graph) -> Result<nir::Graph> {
+        let bits = g.attributes.get("caps_spinnaker")
+            .and_then(|v| v.get("weight_bits"))
+            .and_then(|x| x.as_u64())
+            .unwrap_or(16) as u32;
+
+        let mut synapse_configs = Vec::new();
+        for conn in &g.connections {
+            // SpiNNaker uses 16-bit weights by default
+            let weight_q = if bits <= 8 {
+                QuantizeWeightsPass::quantize(conn.weight, bits)
+            } else {
+                // For 16-bit, use the weight directly (SpiNNaker supports floating point synapses)
+                conn.weight
+            };
+
+            synapse_configs.push(serde_json::json!({
+                "pre_population": conn.pre,
+                "post_population": conn.post,
+                "weight": weight_q,
+                "delay": conn.delay_ms,
+                "plasticity": conn.plasticity
+            }));
+        }
+
+        let meta = serde_json::json!({
+            "weight_bits": bits,
+            "total_synapses": synapse_configs.len(),
+            "synapse_configs": synapse_configs
+        });
+        g.attributes.insert("sn_synapse_programming".to_string(), meta);
+        Ok(g)
+    }
+}
+
 pub enum DumpFormat {
     Json,
     Yaml,
@@ -712,6 +986,14 @@ pub fn build_pipeline(pm: &mut PassManager, names: &[String]) -> Result<()> {
             "routing" => pm.add_pass(RoutingPass),
             "timing" => pm.add_pass(TimingPass),
             "resource-check" | "resource_check" => pm.add_pass(ResourceCheckPass),
+            // TrueNorth passes
+            "tn-core-mapping" => pm.add_pass(TnCoreMappingPass),
+            "tn-weight-programming" => pm.add_pass(TnWeightProgrammingPass),
+            "tn-crossbar-config" => pm.add_pass(TnCrossbarConfigPass),
+            // SpiNNaker passes
+            "sn-core-allocation" => pm.add_pass(SnCoreAllocationPass),
+            "sn-aer-routing" => pm.add_pass(SnAerRoutingPass),
+            "sn-synapse-programming" => pm.add_pass(SnSynapseProgrammingPass),
             other => bail!("unknown pass '{other}'"),
         }
     }
@@ -757,6 +1039,93 @@ pub fn pipeline_with_eir_validation() -> generic::Pipeline<nir::Graph> {
 
     // Build the concrete pipeline (panic on programmer error to keep signature simple).
     reg.build_pipeline(&desc).expect("pipeline_with_eir_validation build")
+}
+
+/// -----------------------------------------------------------------------------
+/// Dump toggles + metrics helpers (H3-7)
+///
+/// Configuration keys (string -> string) interpreted by should_dump and metrics:
+/// - dump_dir: Required for any dumps to be written. When absent, no dumps.
+/// - dump_all: Truthy => enable dumps for all passes regardless of other toggles.
+/// - dump_lower, dump_layout, dump_schedule, dump_validation:
+///     If any of these specific toggles are present in the config, dumping becomes
+///     selective: only passes explicitly set to a truthy value will dump. If the
+///     toggle for a queried pass is absent or false, that pass will not dump.
+/// - metrics: Truthy => enable lightweight tracing::info! logs with structured
+///     fields. When disabled, there is only a single fast boolean check overhead.
+///
+/// Truthy strings (case-insensitive): "1", "true", "yes".
+/// Everything else is treated as false.
+///
+/// Back-compat behavior:
+/// - When dump_dir is set and none of the specific dump_* toggles are present,
+///   all dumps are produced (equivalent to legacy behavior).
+pub fn parse_bool(s: &str) -> bool {
+    match s.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => true,
+        _ => false,
+    }
+}
+
+pub fn metrics_enabled(config: &std::collections::HashMap<String, String>) -> bool {
+    config.get("metrics").map(|v| parse_bool(v)).unwrap_or(false)
+}
+
+pub fn should_dump(pass_key: &str, config: &std::collections::HashMap<String, String>) -> bool {
+    // 1) dump_dir must be present
+    let has_dump_dir = config.get("dump_dir").map(|s| !s.is_empty()).unwrap_or(false);
+    if !has_dump_dir {
+        return false;
+    }
+    // 2) dump_all override
+    if config.get("dump_all").map(|v| parse_bool(v)).unwrap_or(false) {
+        return true;
+    }
+    // 3) selective toggles if any specific keys are present
+    let specific_keys = ["dump_lower", "dump_layout", "dump_schedule", "dump_validation"];
+    let any_specific_present = specific_keys.iter().any(|k| config.contains_key(*k));
+    if any_specific_present {
+        let key = match pass_key {
+            "lower" => "dump_lower",
+            "layout" => "dump_layout",
+            "schedule" => "dump_schedule",
+            "validation" => "dump_validation",
+            _ => return false,
+        };
+        return config.get(key).map(|v| parse_bool(v)).unwrap_or(false);
+    }
+    // 4) Back-compat: dump when dump_dir is set and no specific toggles provided
+    true
+}
+
+/// Convert an optional serde_json::Value config into a flat String map suitable
+/// for toggle evaluation. Non-string scalars are stringified; complex values are
+/// ignored. A bare string config is treated as {"dump_dir": "<that string>"}.
+pub fn config_map_from_value(
+    cfg: Option<&serde_json::Value>,
+) -> std::collections::HashMap<String, String> {
+    use serde_json::Value;
+    let mut out = std::collections::HashMap::new();
+    match cfg {
+        Some(Value::String(s)) => {
+            out.insert("dump_dir".to_string(), s.clone());
+        }
+        Some(Value::Object(map)) => {
+            for (k, v) in map.iter() {
+                let s = match v {
+                    Value::String(s) => s.clone(),
+                    Value::Bool(b) => {
+                        if *b { "true".to_string() } else { "false".to_string() }
+                    }
+                    Value::Number(n) => n.to_string(),
+                    _ => continue,
+                };
+                out.insert(k.clone(), s);
+            }
+        }
+        _ => {}
+    }
+    out
 }
 
 #[cfg(test)]

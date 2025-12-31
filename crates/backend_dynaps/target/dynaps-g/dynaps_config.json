@@ -1,0 +1,25 @@
+{
+  "chip_mapping": {
+    "chip_mappings": [],
+    "chips_used": 1,
+    "cores_per_chip": 4,
+    "cores_used": 0,
+    "neurons_per_core": 1,
+    "total_neurons": 0
+  },
+  "graph": "g",
+  "learning_config": {
+    "learning_configs": [],
+    "on_chip_learning": true,
+    "plastic_connections": 0
+  },
+  "platform": "Dynap-SE",
+  "synapse_programming": {
+    "programmed_synapses": [],
+    "synapse_type": "mixed_signal",
+    "total_synapses": 0,
+    "weight_bits": 8
+  },
+  "target": "dynaps",
+  "timestamp": "2025-12-30T10:46:11.001302+00:00"
+}
