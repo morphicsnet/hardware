@@ -1,6 +1,7 @@
 use anyhow::Result;
 pub use nc_nir as nir;
 pub mod metrics;
+pub mod transactions;
 use serde::{Serialize, Deserialize};
 #[cfg(feature = "telemetry")]
 use std::collections::BTreeMap;

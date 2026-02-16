@@ -16,6 +16,13 @@ pub mod memory_layout_and_quant;
 pub mod kernel_fusion_and_scheduling;
 pub mod validation;
 pub mod eir_validate;
+pub mod proofs;
+pub mod transactional_sample;
+pub mod logic_to_energy;
+pub mod gadgetization;
+pub mod energy_embedding;
+pub mod engine_selection;
+pub mod llvm_optimize;
 
 #[derive(Debug, Error)]
 pub enum PassError {
@@ -994,6 +1001,9 @@ pub fn build_pipeline(pm: &mut PassManager, names: &[String]) -> Result<()> {
             "sn-core-allocation" => pm.add_pass(SnCoreAllocationPass),
             "sn-aer-routing" => pm.add_pass(SnAerRoutingPass),
             "sn-synapse-programming" => pm.add_pass(SnSynapseProgrammingPass),
+            "engine-selection" => pm.add_pass(crate::engine_selection::EngineSelectionPass),
+            "transactional-sample" => pm.add_pass(crate::transactional_sample::TransactionalSamplePass),
+            "llvm-optimize" => pm.add_pass(crate::llvm_optimize::LLVMPass::new()),
             other => bail!("unknown pass '{other}'"),
         }
     }

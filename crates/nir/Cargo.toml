@@ -12,6 +12,10 @@ path = "src/lib.rs"
 default = []
 # Enable binary serialization using bincode when requested
 bin = ["bincode"]
+# Engine implementations
+energy-engine = []
+geometric-engine = []
+physics-engine = []
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }

@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 pub mod eir;
+pub mod transactions;
+pub mod events;
+pub mod phys_ir;
+pub mod data_structures;
+pub mod engines;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Population {
@@ -36,6 +41,10 @@ pub enum Dialect {
     Event,
     Dataflow,
     Hybrid,
+    Hamiltonian,
+    EnergyBased,
+    Geometric,
+    PhysicsBased,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +73,21 @@ impl std::fmt::Display for ValidationError {
 impl std::error::Error for ValidationError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnergyLandscape {
+    pub hamiltonian: Vec<f64>,  // Quadratic terms H = ∑ J_ij x_i x_j
+    pub gradients: Vec<Vec<f64>>,  // ∂H/∂x for gradient descent
+    pub attractors: Vec<f64>,  // Low-energy minima (solutions)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EngineSpec {
+    pub engine_type: String,
+    pub supported_data_structures: Vec<String>,
+    pub resource_requirements: serde_json::Value,
+    pub compatibility_proofs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Graph {
     pub name: String,
     #[serde(default)]
@@ -76,6 +100,10 @@ pub struct Graph {
     pub dialect: Option<Dialect>,
     #[serde(default)]
     pub attributes: IndexMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub energy: Option<EnergyLandscape>,
+    #[serde(default)]
+    pub engine_candidates: Vec<EngineSpec>,
 }
 
 impl Graph {
@@ -87,6 +115,8 @@ impl Graph {
             probes: Vec::new(),
             dialect: None,
             attributes: IndexMap::new(),
+            energy: None,
+            engine_candidates: Vec::new(),
         }
     }
 

@@ -4,6 +4,7 @@
 resolver = "2"
 members = [
   "crates/nir",
+  "crates/mir",
   "crates/hal",
   "crates/passes",
   "crates/runtime",

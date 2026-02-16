@@ -109,6 +109,16 @@ pub struct Capabilities {
     /// Must be power-of-two when present and dma_supported = true
     pub dma_alignment: Option<u32>,
 
+    // Energy-based hardware support
+    pub memristive_crossbar: Option<bool>,
+    pub analog_fpga: Option<bool>,
+    pub energy_precision_bits: Option<u32>,
+
+    // Engine support flags
+    pub supports_energy_based: Option<bool>,
+    pub supports_geometric: Option<bool>,
+    pub supports_physics_based: Option<bool>,
+
     // Profile indicator
     /// "linux_user", "bare_metal", "control_plane" (free form)
     pub profile: Option<String>,
